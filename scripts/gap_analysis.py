@@ -275,7 +275,8 @@ def call_llm(messages: list) -> str:
 
 
 def generate_report(client_name: str, modules_by_source: dict,
-                    product_results: list, output_path: str = None) -> str:
+                    product_results: list, output_path: str = None,
+                    output_format: str = "md") -> str:
     # 合并所有模块
     all_mods_by_src = []
     for src, mods in modules_by_source.items():
@@ -314,9 +315,25 @@ def generate_report(client_name: str, modules_by_source: dict,
 
     report = call_llm([{"role": "user", "content": prompt}])
     if output_path:
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(f"# {client_name} - 功能缺口分析\n\n**时间**: 2026-03-19\n\n{report}")
-        print(f"Report saved: {output_path}")
+        if output_format == "docx":
+            # 先写md临时文件，再转docx
+            md_path = output_path.replace(".docx", ".md")
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(f"# {client_name} - 功能缺口分析\n\n**时间**: 2026-03-19\n\n{report}")
+            # 调用md2docx转换
+            try:
+                from scripts.md2docx import convert_markdown_to_docx
+                ok = convert_markdown_to_docx(md_path, output_path)
+                if ok:
+                    print(f"Report saved: {output_path}")
+                else:
+                    print(f"Report saved (md): {md_path}")
+            except Exception as e:
+                print(f"DOCX conversion failed: {e}, saved as md: {md_path}")
+        else:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(f"# {client_name} - 功能缺口分析\n\n**时间**: 2026-03-19\n\n{report}")
+            print(f"Report saved: {output_path}")
     return report
 
 
@@ -327,6 +344,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("客户名称")
     parser.add_argument("--output", "-o", help="Output file path")
+    parser.add_argument("--format", "-f", choices=["md", "docx"], default="md",
+                        help="Output format: md or docx (default: md)")
     args = parser.parse_args()
 
     client_name = args.客户名称
@@ -360,7 +379,8 @@ def main():
     print(f"   Found {len(results)} product features")
 
     print("\n[AI] Generating analysis report...")
-    report = generate_report(client_name, modules_by_source, results, args.output)
+    report = generate_report(client_name, modules_by_source, results,
+                            args.output, args.format)
 
     print(f"\n{'='*60}\nGap Analysis Report\n{'='*60}\n{report}")
 

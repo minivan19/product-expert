@@ -98,12 +98,24 @@ python scripts/search_features.py "客户希望管控供应商准入和资质有
 **用途**：场景2 — 缺口分析
 **输入**：客户名称
 **处理**：自动查找该客户的商务档案 + 运维工单目录
-**输出**：缺口分析报告（Markdown）
+**输出**：缺口分析报告（Markdown 或 Word）
 **用法**：
 ```bash
 python scripts/gap_analysis.py 明阳电路
-python scripts/gap_analysis.py 明阳电路 --output report.md
+python scripts/gap_analysis.py 明阳电路 --output 缺口报告.md
+python scripts/gap_analysis.py 明阳电路 --output 缺口报告.docx --format docx
 ```
+
+### md2docx.py
+**用途**：Markdown 转 Word 文档（独立工具）
+**输入**：Markdown 文件
+**输出**：Word 文档（.docx）
+**用法**：
+```bash
+python scripts/md2docx.py --input report.md --output report.docx
+python scripts/md2docx.py --input report.md --output report.docx --template template.docx
+```
+**注意**：支持无模板 fallback，不指定 `--template` 时生成纯样式 Word
 
 ## 依赖其他 Skill 的数据格式
 

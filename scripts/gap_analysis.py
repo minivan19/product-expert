@@ -157,83 +157,147 @@ def extract_modules_from_text(text: str) -> list:
 
 # ─── 多数据源整合 ────────────────────────────────────────────
 
-def extract_all_modules(client_dir: str) -> dict:
-    """
-    返回 {来源: [模块列表]}
-    按优先级处理各数据源
-    """
-    result = {}
-
-    # 1. 客户主数据xlsx（最高优先级："购买模块"列）
-    for subdir in ["基础数据", "客户档案", "其他文档"]:
-        sub = os.path.join(client_dir, subdir)
-        if not os.path.isdir(sub):
-            continue
-        for fn in os.listdir(sub):
-            if "客户主数据" in fn and fn.endswith(".xlsx"):
-                print(f"  读取主数据: {fn}")
-                mods = list(extract_from_xlsx_master(os.path.join(sub, fn)))
-                if mods:
-                    result["已购模块(xlsx)"] = mods
-                    print(f"    提取到: {mods}")
-
-    # 2. 运维工单（已有逻辑）
-    ops_dir = os.path.join(client_dir, "运维工单")
-    if os.path.isdir(ops_dir):
-        ops_modules = []
-        for fn in os.listdir(ops_dir):
-            if fn.endswith(".xlsx"):
-                mods = _extract_from_workorder(os.path.join(ops_dir, fn))
-                ops_modules.extend(mods)
-        if ops_modules:
-            result["运维工单"] = _dedup_list(ops_modules)
-
-    # 3. 蓝图方案目录：PDF流程图 + DOC手册
-    blueprint_dir = os.path.join(client_dir, "蓝图方案")
-    if os.path.isdir(blueprint_dir):
-        pdf_modules = []
-        doc_modules = []
-        for fn in sorted(os.listdir(blueprint_dir)):
-            fp = os.path.join(blueprint_dir, fn)
-            if fn.endswith(".pdf"):
-                print(f"  读取PDF: {fn[:40]}")
-                text = extract_from_pdf(fp)
-                if text:
-                    mods = extract_modules_from_text(text)
-                    pdf_modules.extend(mods)
-                    if mods:
-                        print(f"    提取到模块: {mods}")
-            elif fn.endswith(".doc") or fn.endswith(".docx"):
-                print(f"  读取DOC: {fn[:40]}")
-                text = extract_from_doc(fp)
-                if text:
-                    mods = extract_modules_from_text(text)
-                    doc_modules.extend(mods)
-                    if mods:
-                        print(f"    提取到模块: {mods}")
-        if pdf_modules:
-            result["蓝图PDF"] = _dedup_list(pdf_modules)
-        if doc_modules:
-            result["蓝图DOC"] = _dedup_list(doc_modules)
-
-    # 4. 商务信息目录（合同附件xlsx）
-    biz_dir = os.path.join(client_dir, "商务信息")
-    if os.path.isdir(biz_dir):
-        biz_modules = []
-        for fn in os.listdir(biz_dir):
-            if fn.endswith(".xlsx"):
-                mods = _extract_from_workorder(os.path.join(biz_dir, fn))
-                biz_modules.extend(mods)
-        if biz_modules:
-            result["合同附件"] = _dedup_list(biz_modules)
-
-    return result
+def _get_last_year() -> int:
+    from datetime import datetime
+    return datetime.now().year - 1
 
 
-def _extract_from_workorder(filepath: str) -> list:
-    """从运维/合同xlsx提取模块列"""
+def _read_workorder_batch(filepath: str, year: int) -> list:
+    import openpyxl as opx
+    records = []
     try:
-        wb = openpyxl.load_workbook(filepath, data_only=True)
+        wb = opx.load_workbook(filepath, data_only=True)
+        for ws in wb.worksheets:
+            hdr_row = next(ws.iter_rows(min_row=1, max_row=1))
+            headers = [c.value for c in hdr_row]
+            col_idx = {str(h).strip(): i for i, h in enumerate(headers) if h}
+            required = ["标题", "描述", "解决方案", "根本原因", "模块", "提单时间"]
+            if not all(k in col_idx for k in required):
+                continue
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                rd = {h: (row[i] if i < len(row) else None) for h, i in col_idx.items()}
+                t = rd.get("提单时间", "")
+                if not t:
+                    continue
+                record_year = None
+                if hasattr(t, 'year'):
+                    record_year = t.year
+                else:
+                    from datetime import datetime
+                    ts = str(t).strip()[:10]
+                    for fmt in ["%Y-%m-%d", "%Y/%m/%d"]:
+                        try:
+                            record_year = datetime.strptime(ts, fmt).year
+                            break
+                        except:
+                            continue
+                if record_year != year:
+                    continue
+                desc = str(rd.get("描述") or "").strip()
+                solution = str(rd.get("解决方案") or "").strip()
+                if not desc and not solution:
+                    continue
+                records.append({
+                    "标题": str(rd.get("标题") or "").strip(),
+                    "描述": desc,
+                    "解决方案": solution,
+                    "根本原因": str(rd.get("根本原因") or "").strip(),
+                    "模块": str(rd.get("模块") or "").strip(),
+                })
+    except Exception as e:
+        print(f"    读取工单失败: {e}")
+    return records
+
+
+def _llm_extract_from_workorders(records: list, batch_size: int = 15) -> dict:
+    import requests, re
+    module_count = {}
+    pain_points = []
+    unsatisfied = []
+    for i in range(0, len(records), batch_size):
+        batch = records[i:i + batch_size]
+        items = []
+        for j, rec in enumerate(batch, 1):
+            items.append(
+                "【工单{}】\n标题：{}\n描述：{}\n解决方案：{}\n根本原因：{}".format(
+                    j, rec["标题"], rec["描述"][:200], rec["解决方案"][:200], rec["根本原因"][:100]
+                )
+            )
+        block = "\n\n".join(items)
+        prompt = (
+            "你是SRM产品专家。从以下运维工单中提取产品模块和痛点。\n\n"
+            "要求：\n"
+            "1. 每条工单输出：涉及的产品模块 | 痛点（一句话） | 是否满足（是/否/部分）\n"
+            "2. 只输出【工单X】格式，不要任何解释\n\n"
+            "工单记录：\n"
+            + block +
+            "\n\n输出：")
+
+        try:
+            resp = requests.post(
+                LLM_BASE_URL + "/chat/completions",
+                headers={"Authorization": "Bearer " + LLM_API_KEY, "Content-Type": "application/json"},
+                json={"model": LLM_MODEL, "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.1, "max_tokens": 2000},
+                timeout=120
+            )
+            if resp.status_code == 200:
+                text = resp.json()["choices"][0]["message"]["content"]
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if not line.startswith("【工单"):
+                        continue
+                    m_mod = re.search(r"模块[：:]([^|\n]+)", line)
+                    m_pain = re.search(r"痛点[：:]([^|\n]+)", line)
+                    m_sat = re.search(r"满足[：:]([^|\n]+)", line)
+                    if m_mod:
+                        mod = m_mod.group(1).strip()
+                        if mod and len(mod) > 1:
+                            module_count[mod] = module_count.get(mod, 0) + 1
+                    if m_pain and m_sat:
+                        pain = m_pain.group(1).strip()
+                        sat = m_sat.group(1).strip()
+                        if pain:
+                            pain_points.append(pain)
+                        if "否" in sat or "不满足" in sat:
+                            unsatisfied.append(pain)
+        except Exception as e:
+            print(f"    LLM调用失败: {e}")
+        print(f"    已处理 {min(i + batch_size, len(records))}/{len(records)} 条工单")
+    return {"模块统计": module_count, "痛点": pain_points, "未满足": unsatisfied}
+
+
+def _extract_workorder_summary(client_dir: str, year: int) -> dict:
+    import os
+    ops_dir = os.path.join(client_dir, "运维工单")
+    if not os.path.isdir(ops_dir):
+        return {}
+    all_records = []
+    xlsx_files = sorted([f for f in os.listdir(ops_dir) if f.endswith(".xlsx")])
+    print(f"  扫描运维工单: {len(xlsx_files)} 个文件，筛选{year}年数据")
+    for fn in xlsx_files:
+        recs = _read_workorder_batch(os.path.join(ops_dir, fn), year)
+        if recs:
+            print(f"    {fn}: {len(recs)} 条有效记录")
+            all_records.extend(recs)
+    if not all_records:
+        print(f"  无{year}年工单数据")
+        return {}
+    print(f"  共{len(all_records)}条工单，LLM语义分析中...")
+    summary = _llm_extract_from_workorders(all_records)
+    top = sorted(summary["模块统计"].items(), key=lambda x: -x[1])[:10]
+    top_str = ", ".join([f"{m}({c}次)" for m, c in top])
+    return {
+        f"运维工单({year}年)": [f"共{len(all_records)}条工单，高频模块：{top_str}"],
+        "痛点摘要": summary["痛点"][:5],
+        "未满足需求": summary["未满足"][:5],
+    }
+
+
+def _extract_from_workorder_simple(filepath: str) -> list:
+    import openpyxl as opx
+    try:
+        wb = opx.load_workbook(filepath, data_only=True)
         for ws in wb.worksheets:
             headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
             for col_i, h in enumerate(headers):
@@ -248,6 +312,128 @@ def _extract_from_workorder(filepath: str) -> list:
     except:
         pass
     return []
+
+
+def extract_all_modules(client_dir: str) -> dict:
+    import os
+    result = {}
+    year = _get_last_year()
+    # 1. 客户主数据xlsx
+    for subdir in ["基础数据", "客户档案", "其他文档"]:
+        sub = os.path.join(client_dir, subdir)
+        if not os.path.isdir(sub):
+            continue
+        for fn in os.listdir(sub):
+            if "客户主数据" in fn and fn.endswith(".xlsx"):
+                print(f"  读取主数据: {fn}")
+                mods = list(extract_from_xlsx_master(os.path.join(sub, fn)))
+                if mods:
+                    result["已购模块(xlsx)"] = mods
+    # 2. 运维工单（LLM语义分析）
+    ops_summary = _extract_workorder_summary(client_dir, year)
+    if ops_summary:
+        result.update(ops_summary)
+    # 3. 蓝图方案目录
+    blueprint_dir = os.path.join(client_dir, "蓝图方案")
+    if os.path.isdir(blueprint_dir):
+        pdf_modules, doc_modules = [], []
+        for fn in sorted(os.listdir(blueprint_dir)):
+            fp = os.path.join(blueprint_dir, fn)
+            if fn.endswith(".pdf"):
+                print(f"  读取PDF: {fn[:40]}")
+                text = extract_from_pdf(fp)
+                if text:
+                    pdf_modules.extend(extract_modules_from_text(text))
+            elif fn.endswith(".doc") or fn.endswith(".docx"):
+                print(f"  读取DOC: {fn[:40]}")
+                text = extract_from_doc(fp)
+                if text:
+                    doc_modules.extend(extract_modules_from_text(text))
+        if pdf_modules:
+            result["蓝图PDF"] = _dedup_list(pdf_modules)
+        if doc_modules:
+            result["蓝图DOC"] = _dedup_list(doc_modules)
+    # 4. 商务信息目录
+    biz_dir = os.path.join(client_dir, "商务信息")
+    if os.path.isdir(biz_dir):
+        biz_modules = []
+        for fn in os.listdir(biz_dir):
+            if fn.endswith(".xlsx"):
+                biz_modules.extend(_extract_from_workorder_simple(os.path.join(biz_dir, fn)))
+        if biz_modules:
+            result["合同附件"] = _dedup_list(biz_modules)
+    return result
+
+
+def _dedup_list(lst: list) -> list:
+    seen = set()
+    result = []
+    for x in lst:
+        if x not in seen:
+            seen.add(x)
+            result.append(x)
+    return result
+
+
+def extract_all_modules(client_dir: str) -> dict:
+    """返回 {来源: [内容列表]}"""
+    import os
+    result = {}
+    year = _get_last_year()
+
+    # 1. 客户主数据xlsx（最高优先级）
+    for subdir in ["基础数据", "客户档案", "其他文档"]:
+        sub = os.path.join(client_dir, subdir)
+        if not os.path.isdir(sub):
+            continue
+        for fn in os.listdir(sub):
+            if "客户主数据" in fn and fn.endswith(".xlsx"):
+                print(f"  读取主数据: {fn}")
+                mods = list(extract_from_xlsx_master(os.path.join(sub, fn)))
+                if mods:
+                    result["已购模块(xlsx)"] = mods
+
+    # 2. 运维工单（LLM语义分析）
+    ops_summary = _extract_workorder_summary(client_dir, year)
+    if ops_summary:
+        result.update(ops_summary)
+
+    # 3. 蓝图方案目录
+    blueprint_dir = os.path.join(client_dir, "蓝图方案")
+    if os.path.isdir(blueprint_dir):
+        pdf_modules = []
+        doc_modules = []
+        for fn in sorted(os.listdir(blueprint_dir)):
+            fp = os.path.join(blueprint_dir, fn)
+            if fn.endswith(".pdf"):
+                print(f"  读取PDF: {fn[:40]}")
+                text = extract_from_pdf(fp)
+                if text:
+                    mods = extract_modules_from_text(text)
+                    pdf_modules.extend(mods)
+            elif fn.endswith(".doc") or fn.endswith(".docx"):
+                print(f"  读取DOC: {fn[:40]}")
+                text = extract_from_doc(fp)
+                if text:
+                    mods = extract_modules_from_text(text)
+                    doc_modules.extend(mods)
+        if pdf_modules:
+            result["蓝图PDF"] = _dedup_list(pdf_modules)
+        if doc_modules:
+            result["蓝图DOC"] = _dedup_list(doc_modules)
+
+    # 4. 商务信息目录
+    biz_dir = os.path.join(client_dir, "商务信息")
+    if os.path.isdir(biz_dir):
+        biz_modules = []
+        for fn in os.listdir(biz_dir):
+            if fn.endswith(".xlsx"):
+                mods = _extract_from_workorder_simple(os.path.join(biz_dir, fn))
+                biz_modules.extend(mods)
+        if biz_modules:
+            result["合同附件"] = _dedup_list(biz_modules)
+
+    return result
 
 
 def _dedup_list(lst: list) -> list:

@@ -11,9 +11,9 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.qdrant_ops import search_points, count_points
 
-LLM_API_KEY = "sk-Pzt8a346e78b733bfead64b269317c033e97cd59abfWoqEt"
-LLM_BASE_URL = "https://api.gptsapi.net/v1"
-LLM_MODEL = "gpt-3.5-turbo"
+LLM_API_KEY = "sk-340ed7819c2346508c0a46a80df85999"
+LLM_BASE_URL = "https://api.deepseek.com/v1"
+LLM_MODEL = "deepseek-chat"
 SEARCH_TOP_K = 20
 
 

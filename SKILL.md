@@ -37,8 +37,10 @@ description: >-
 ## 知识库架构
 
 ### Qdrant Collection: product_knowledge
-- **维度**：1536（text-embedding-3-small）
+- **维度**：3072（text-embedding-3-large）
 - **距离算法**：Cosine
+- **Embedding API**：gptsapi.net（与 Mem0 一致）
+- **LLM 分析**：DeepSeek（deepseek-chat via api.deepseek.com）
 - **隔离**：独立于 Mem0 的 openclaw_memories collection
 
 ### 数据结构
@@ -62,11 +64,14 @@ description: >-
 | 产品功能手册 | `C:\Users\mingh\client-data\raw\产品功能\`（65份MD） | Markdown | 几乎不变 |
 | 迭代功能清单 | `C:\Users\mingh\client-data\raw\产品功能\甄云SRM产品功能清单.xlsx` | Excel | 每年一次 |
 
-### 检索优先级（场景2）
-1. **蓝图**（如有）— 项目实施范围，最准确
-2. **用户手册**（如有）— 客户定制化实施范围
-3. **合同模块清单**（商务专家原始数据）— 采购模块
-4. **运维工单**（运维专家原始数据）— 高频使用模块
+### 检索优先级（场景2，按实际数据源优先级排序）
+1. **客户主数据xlsx"购买模块"列**（最高优先）— 合同中明确的采购模块
+2. **运维工单** — 高频使用模块分析
+3. **蓝图PDF流程图**（PyMuPDF提取文字）— 项目实施范围
+4. **蓝图DOC手册**（win32com+Word读取）— 定制化实施范围
+5. **商务信息合同附件**（xlsx）— 合同模块清单
+
+**支持格式**：xlsx / PDF / DOC / DOCX（自动识别处理）
 
 ## 脚本说明
 

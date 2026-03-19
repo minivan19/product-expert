@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-场景2：客户功能缺口分析
+场景2：客户功能缺口分析（支持DOC/PDF/xlsx多格式）
 用法：
   python scripts/gap_analysis.py 明阳电路
   python scripts/gap_analysis.py 明阳电路 --output 缺口报告.md
@@ -12,14 +12,24 @@ import re
 import sys
 import openpyxl
 import requests
+import fitz  # PyMuPDF
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.qdrant_ops import search_points, count_points
 
 CLIENT_DATA_ROOT = r"C:\Users\mingh\client-data\raw\客户档案"
-LLM_API_KEY = "sk-Pzt8a346e78b733bfead64b269317c033e97cd59abfWoqEt"
-LLM_BASE_URL = "https://api.gptsapi.net/v1"
-LLM_MODEL = "gpt-3.5-turbo"
+LLM_API_KEY = "sk-340ed7819c2346508c0a46a80df85999"
+LLM_BASE_URL = "https://api.deepseek.com/v1"
+LLM_MODEL = "deepseek-chat"
+
+# 已知模块关键词
+MODULE_PATTERNS = [
+    "供应商管理", "寻源管理", "采购订单", "合同管理", "价格管理",
+    "招投标", "竞价", "询价", "预算管理", "采购申请", "商城",
+    "结算", "付款", "质量", "风控", "供应商协同", "会员",
+    "主数据", "价格库", "工作流", "业务规则", "消息管理",
+    "移动端", "门户", "报表", "BI", "审批",
+]
 
 
 def find_client_dir(name: str) -> str | None:
@@ -31,112 +41,219 @@ def find_client_dir(name: str) -> str | None:
     return None
 
 
-def extract_from_xlsx(filepath: str) -> list:
-    modules = []
+# ─── 数据格式解析 ───────────────────────────────────────────
+
+def extract_from_xlsx_master(filepath: str) -> list:
+    """从客户主数据xlsx提取'购买模块'列（最高优先级）"""
     try:
         wb = openpyxl.load_workbook(filepath, data_only=True)
-        for ws in wb.worksheets:
-            headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-            for col_i, h in enumerate(headers):
-                if h and any(k in str(h) for k in ["模块", "产品", "功能", "系统"]):
-                    for row in ws.iter_rows(min_row=2, values_only=True):
-                        val = row[col_i] if col_i < len(row) else None
-                        if val and len(str(val).strip()) > 1:
-                            modules.append(str(val).strip())
-                    break
-    except:
-        pass
-    return list(dict.fromkeys(modules))  # 去重保留顺序
+        ws = wb.active
+        headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+        # 找"购买模块"列
+        for col_i, h in enumerate(headers):
+            if h and "购买模块" in str(h):
+                for row in ws.iter_rows(min_row=2, values_only=True):
+                    val = row[col_i] if col_i < len(row) else None
+                    if val:
+                        text = str(val).strip()
+                        # 逗号/顿号/分号分隔
+                        parts = re.split(r'[,，；;、\n]', text)
+                        for p in parts:
+                            p = p.strip()
+                            if p and len(p) > 1:
+                                yield p
+                break
+    except Exception as e:
+        print(f"    xlsx读取失败: {e}")
 
 
-def extract_from_text(filepath: str) -> list:
-    modules = []
+def extract_from_doc(filepath: str) -> str:
+    """用win32com读取Word文档（支持.doc和.docx）"""
+    text_parts = []
     try:
-        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
-        patterns = [
-            r"供应商管理|寻源管理|采购订单|合同管理|价格管理|招投标|竞价|询价",
-            r"预算管理|采购申请|商城|结算|付款|质量|风控|供应商协同|会员",
-            r"主数据|价格库|工作流|业务规则|消息管理|移动端|门户",
-        ]
-        for pat in patterns:
-            for m in re.findall(pat, content):
-                modules.append(m)
-    except:
-        pass
-    return list(dict.fromkeys(modules))
+        import win32com.client
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        try:
+            doc = word.Documents.Open(os.path.abspath(filepath))
+            # 读取所有段落文字
+            for para in doc.Paragraphs:
+                t = para.Range.Text.strip()
+                if t:
+                    text_parts.append(t)
+            # 也尝试读表格
+            for table in doc.Tables:
+                for row in table.Rows:
+                    for cell in row.Cells:
+                        t = cell.Range.Text.strip()
+                        if t:
+                            text_parts.append(t)
+            doc.Close(False)
+        finally:
+            word.Quit()
+    except Exception as e:
+        print(f"    Word读取失败: {e}")
+    return "\n".join(text_parts)
 
 
-def extract_from_workorders(client_dir: str) -> list:
-    modules = []
-    ops_dir = os.path.join(client_dir, "运维工单")
-    if not os.path.isdir(ops_dir):
-        return modules
-    for fn in os.listdir(ops_dir):
-        if not fn.endswith(".xlsx"):
-            continue
-        filepath = os.path.join(ops_dir, fn)
-        found = extract_from_xlsx(filepath)
-        modules.extend([f"{m}（工单）" for m in found])
-    return list(dict.fromkeys(modules))
+def extract_from_pdf(filepath: str) -> str:
+    """用PyMuPDF提取PDF文字"""
+    text_parts = []
+    try:
+        doc = fitz.open(filepath)
+        for page in doc:
+            t = page.get_text()
+            if t.strip():
+                text_parts.append(t.strip())
+        doc.close()
+    except Exception as e:
+        print(f"    PDF读取失败: {e}")
+    return "\n".join(text_parts)
 
+
+def extract_modules_from_text(text: str) -> list:
+    """从文本内容提取模块关键词"""
+    found = []
+    for pat in MODULE_PATTERNS:
+        if pat in text:
+            found.append(pat)
+    # 去重
+    seen = set()
+    result = []
+    for f in found:
+        if f not in seen:
+            seen.add(f)
+            result.append(f)
+    return result
+
+
+# ─── 多数据源整合 ────────────────────────────────────────────
 
 def extract_all_modules(client_dir: str) -> dict:
-    """返回 {来源: [模块列表]}"""
+    """
+    返回 {来源: [模块列表]}
+    按优先级处理各数据源
+    """
     result = {}
 
-    # 商务信息
-    biz = os.path.join(client_dir, "商务信息")
-    if os.path.isdir(biz):
-        mods = []
-        for fn in os.listdir(biz):
-            fp = os.path.join(biz, fn)
-            if fn.endswith(".xlsx"):
-                mods.extend(extract_from_xlsx(fp))
-            elif fn.endswith((".md", ".txt")):
-                mods.extend(extract_from_text(fp))
-        if mods:
-            result["合同模块"] = mods[:20]
-
-    # 运维工单
-    ops = os.path.join(client_dir, "运维工单")
-    if os.path.isdir(ops):
-        mods = extract_from_workorders(client_dir)
-        if mods:
-            result["运维工单"] = mods[:20]
-
-    # 蓝图/用户手册
-    for fn in os.listdir(client_dir):
-        if any(k in fn for k in ["蓝图", "实施", "用户手册"]):
-            fp = os.path.join(client_dir, fn)
-            if fn.endswith(".md"):
-                mods = extract_from_text(fp)
+    # 1. 客户主数据xlsx（最高优先级："购买模块"列）
+    for subdir in ["基础数据", "客户档案", "其他文档"]:
+        sub = os.path.join(client_dir, subdir)
+        if not os.path.isdir(sub):
+            continue
+        for fn in os.listdir(sub):
+            if "客户主数据" in fn and fn.endswith(".xlsx"):
+                print(f"  读取主数据: {fn}")
+                mods = list(extract_from_xlsx_master(os.path.join(sub, fn)))
                 if mods:
-                    result["蓝图/手册"] = mods[:20]
+                    result["已购模块(xlsx)"] = mods
+                    print(f"    提取到: {mods}")
+
+    # 2. 运维工单（已有逻辑）
+    ops_dir = os.path.join(client_dir, "运维工单")
+    if os.path.isdir(ops_dir):
+        ops_modules = []
+        for fn in os.listdir(ops_dir):
+            if fn.endswith(".xlsx"):
+                mods = _extract_from_workorder(os.path.join(ops_dir, fn))
+                ops_modules.extend(mods)
+        if ops_modules:
+            result["运维工单"] = _dedup_list(ops_modules)
+
+    # 3. 蓝图方案目录：PDF流程图 + DOC手册
+    blueprint_dir = os.path.join(client_dir, "蓝图方案")
+    if os.path.isdir(blueprint_dir):
+        pdf_modules = []
+        doc_modules = []
+        for fn in sorted(os.listdir(blueprint_dir)):
+            fp = os.path.join(blueprint_dir, fn)
+            if fn.endswith(".pdf"):
+                print(f"  读取PDF: {fn[:40]}")
+                text = extract_from_pdf(fp)
+                if text:
+                    mods = extract_modules_from_text(text)
+                    pdf_modules.extend(mods)
+                    if mods:
+                        print(f"    提取到模块: {mods}")
+            elif fn.endswith(".doc") or fn.endswith(".docx"):
+                print(f"  读取DOC: {fn[:40]}")
+                text = extract_from_doc(fp)
+                if text:
+                    mods = extract_modules_from_text(text)
+                    doc_modules.extend(mods)
+                    if mods:
+                        print(f"    提取到模块: {mods}")
+        if pdf_modules:
+            result["蓝图PDF"] = _dedup_list(pdf_modules)
+        if doc_modules:
+            result["蓝图DOC"] = _dedup_list(doc_modules)
+
+    # 4. 商务信息目录（合同附件xlsx）
+    biz_dir = os.path.join(client_dir, "商务信息")
+    if os.path.isdir(biz_dir):
+        biz_modules = []
+        for fn in os.listdir(biz_dir):
+            if fn.endswith(".xlsx"):
+                mods = _extract_from_workorder(os.path.join(biz_dir, fn))
+                biz_modules.extend(mods)
+        if biz_modules:
+            result["合同附件"] = _dedup_list(biz_modules)
 
     return result
 
+
+def _extract_from_workorder(filepath: str) -> list:
+    """从运维/合同xlsx提取模块列"""
+    try:
+        wb = openpyxl.load_workbook(filepath, data_only=True)
+        for ws in wb.worksheets:
+            headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+            for col_i, h in enumerate(headers):
+                if h and any(k in str(h) for k in ["模块", "产品", "系统", "分类"]):
+                    mods = []
+                    for row in ws.iter_rows(min_row=2, values_only=True):
+                        val = row[col_i] if col_i < len(row) else None
+                        if val and len(str(val).strip()) > 1:
+                            mods.append(str(val).strip())
+                    if mods:
+                        return mods
+    except:
+        pass
+    return []
+
+
+def _dedup_list(lst: list) -> list:
+    seen = set()
+    result = []
+    for x in lst:
+        if x not in seen:
+            seen.add(x)
+            result.append(x)
+    return result
+
+
+# ─── LLM 报告生成 ────────────────────────────────────────────
 
 def call_llm(messages: list) -> str:
     resp = requests.post(
         f"{LLM_BASE_URL}/chat/completions",
         headers={"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"},
         json={"model": LLM_MODEL, "messages": messages, "temperature": 0.3},
-        timeout=120
+        timeout=180
     )
     if resp.status_code == 200:
         return resp.json()["choices"][0]["message"]["content"]
-    return f"LLM失败: {resp.status_code}"
+    return f"LLM failed: {resp.status_code}"
 
 
-def generate_report(client_name: str, modules_by_source: dict, product_results: list, output_path: str = None) -> str:
+def generate_report(client_name: str, modules_by_source: dict,
+                    product_results: list, output_path: str = None) -> str:
     # 合并所有模块
-    all_mods = []
+    all_mods_by_src = []
     for src, mods in modules_by_source.items():
         for m in mods:
-            all_mods.append(f"- {m}（来源：{src}）")
-
-    used_text = "\n".join(all_mods) if all_mods else "（未能提取到模块信息）"
+            all_mods_by_src.append(f"- {m}（来源：{src}）")
+    used_text = "\n".join(all_mods_by_src) if all_mods_by_src else "（未能提取到模块信息）"
 
     prod_text = "\n".join([
         f"- {p[0].get('module','')}/{p[0].get('type','')}: {p[0].get('text','')[:80]}..."
@@ -147,7 +264,7 @@ def generate_report(client_name: str, modules_by_source: dict, product_results: 
 
 客户名称：{client_name}
 
-已用模块（数据来源）：
+已用/已购模块（多数据源）：
 {used_text}
 
 产品功能库（部分）：
@@ -157,7 +274,7 @@ def generate_report(client_name: str, modules_by_source: dict, product_results: 
 ## 客户：{client_name}
 ## 数据来源：{', '.join(modules_by_source.keys()) if modules_by_source else '无'}
 
-## 1. 已用功能概览
+## 1. 已用功能概览（综合所有数据源）
 
 ## 2. 功能缺口
 ### 2.1 已购未充分使用
@@ -171,54 +288,53 @@ def generate_report(client_name: str, modules_by_source: dict, product_results: 
     if output_path:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(f"# {client_name} - 功能缺口分析\n\n**时间**: 2026-03-19\n\n{report}")
-        print(f"✅ 报告已保存: {output_path}")
+        print(f"Report saved: {output_path}")
     return report
 
+
+# ─── 主入口 ────────────────────────────────────────────────
 
 def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("客户名称")
-    parser.add_argument("--output", "-o", help="输出文件")
+    parser.add_argument("--output", "-o", help="Output file path")
     args = parser.parse_args()
 
     client_name = args.客户名称
-    print(f"\n🔍 客户: {client_name}")
+    print(f"\n[search] Client: {client_name}")
 
     client_dir = find_client_dir(client_name)
     if not client_dir:
-        print(f"❌ 未找到客户目录: {CLIENT_DATA_ROOT}")
+        print(f"[ERROR] Client dir not found: {CLIENT_DATA_ROOT}")
         sys.exit(1)
-    print(f"✅ 目录: {client_dir}")
+    print(f"[OK] Dir: {client_dir}")
 
-    # 提取模块
-    print("\n📂 提取数据源...")
+    print("\n[import] Extracting data sources...")
     modules_by_source = extract_all_modules(client_dir)
     for src, mods in modules_by_source.items():
-        print(f"   {src}: {len(mods)} 个")
+        print(f"   {src}: {len(mods)} modules")
 
     if not modules_by_source:
-        print("⚠️  未提取到任何模块")
+        print("[WARN] No modules extracted")
         sys.exit(1)
 
-    # 检索产品功能
     total = count_points()
     if total == 0:
-        print("⚠️  知识库为空，请先运行: python scripts/import_knowledge.py")
+        print("[ERROR] Knowledge base empty. Run: python scripts/import_knowledge.py")
         sys.exit(1)
 
-    print(f"\n📚 检索产品功能库（{total} 条）...")
-    query = " ".join(sum([m for m in modules_by_source.values()], [])[:10])
-    if len(query) < 10:
-        query = "SRM采购管理供应商合同订单"
+    print(f"\n[search] Searching product DB ({total} records)...")
+    # 用已提取的模块名构建检索query
+    all_mod_names = sum([m for m in modules_by_source.values()], [])
+    query = " ".join(all_mod_names[:15]) if len(" ".join(all_mod_names[:15])) > 10 else "SRM采购管理供应商合同订单"
     results = search_points(query, top_k=50)
-    print(f"   找到 {len(results)} 条")
+    print(f"   Found {len(results)} product features")
 
-    # 生成报告
-    print("\n🤖 生成分析报告...")
+    print("\n[AI] Generating analysis report...")
     report = generate_report(client_name, modules_by_source, results, args.output)
 
-    print(f"\n{'='*60}\n缺口分析结果\n{'='*60}\n{report}")
+    print(f"\n{'='*60}\nGap Analysis Report\n{'='*60}\n{report}")
 
 
 if __name__ == "__main__":

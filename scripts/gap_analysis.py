@@ -574,7 +574,9 @@ def generate_report(client_name: str, modules_by_source: dict,
         for p in product_results[:20]
     ])
 
-    prompt = f"""你是SRM产品专家。为客户做功能缺口分析。
+    # === Prompt v2：正文不加粗，只用##结构 ===
+    # 回滚方案：注释下面两行，改回 v1 prompt 即可
+    prompt_v2 = f"""你是SRM产品专家。为客户做功能缺口分析。
 
 客户名称：{client_name}
 
@@ -587,7 +589,7 @@ def generate_report(client_name: str, modules_by_source: dict,
 
 输出要求：
 1. 直接输出正文，不要任何开篇客套语
-2. 标题用##，加粗用**文字**
+2. 标题用##，描述内容不加粗（不用**文字**），不强调，不突出显示
 3. 输出结构：
 
 ## 1. 已用功能概览
@@ -600,8 +602,14 @@ def generate_report(client_name: str, modules_by_source: dict,
 
 ## 4. 总结"""
 
-    report = call_llm([{"role": "user", "content": prompt}])
-    # 去掉开篇客套语（如LLM说"好的，作为..."）
+    # === Prompt v1（回滚用）：允许加粗 ===
+    # prompt_v1 = f"""你是SRM产品专家。为客户做功能缺口分析...
+    # 输出要求：2. 标题用##，加粗用**文字**
+    # """
+
+    report = call_llm([{"role": "user", "content": prompt_v2}])
+
+    # 清洗：去掉开篇客套语
     lines = report.split('\n')
     skip_patterns = ['好的，', '作为SRM产品专家', '以下是', '我将基于', '下面为', '以下为']
     filtered = []
@@ -610,7 +618,9 @@ def generate_report(client_name: str, modules_by_source: dict,
         if stripped and not stripped.startswith('#') and any(stripped.startswith(p) for p in skip_patterns):
             continue
         filtered.append(line)
-    report = '\n'.join(filtered)
+    # 清洗（回退保险）：全文统一去掉所有加粗
+    import re
+    report = re.sub(r'\*\*([^*]+)\*\*', r'\1', report)
 
     if output_path:
         if output_format == "docx":

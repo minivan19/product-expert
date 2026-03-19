@@ -209,65 +209,137 @@ def _read_workorder_batch(filepath: str, year: int) -> list:
     return records
 
 
-def _llm_extract_from_workorders(records: list, batch_size: int = 15) -> dict:
-    import requests, re
-    module_count = {}
-    pain_points = []
-    unsatisfied = []
+def _llm_extract_from_workorders(records: list, batch_size: int = 10) -> dict:
+    """基于产品功能清单，提取运维工单中的模块使用情况和功能使用情况。"""
+    import requests, re, json
+
+    # 加载产品功能层级
+    hierarchy_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "references", "product_modules_hierarchy.json"
+    )
+    with open(hierarchy_path, encoding="utf-8") as f:
+        module_list = json.load(f)
+
+    # 构建 prompt 中的模块清单（带序号）
+    mod_lines = []
+    for m in module_list:
+        mod_lines.append(f"- {m['module']}：{', '.join(m['features'])}")
+    module_catalog = "\n".join(mod_lines)
+
+    all_used_modules = set()
+    all_unused_modules = set()
+    all_used_features = {}   # {模块名: [功能列表]}
+    all_unused_features = {}  # {模块名: [功能列表]}
+
     for i in range(0, len(records), batch_size):
         batch = records[i:i + batch_size]
         items = []
         for j, rec in enumerate(batch, 1):
             items.append(
                 "【工单{}】\n标题：{}\n描述：{}\n解决方案：{}\n根本原因：{}".format(
-                    j, rec["标题"], rec["描述"][:200], rec["解决方案"][:200], rec["根本原因"][:100]
+                    j,
+                    rec.get("标题", ""),
+                    rec.get("描述", "")[:300] if rec.get("描述") else "",
+                    rec.get("解决方案", "")[:200] if rec.get("解决方案") else "",
+                    rec.get("根本原因", "")[:150] if rec.get("根本原因") else ""
                 )
             )
         block = "\n\n".join(items)
+
         prompt = (
-            "你是SRM产品专家。从以下运维工单中提取产品模块和痛点。\n\n"
-            "要求：\n"
-            "1. 每条工单输出：涉及的产品模块 | 痛点（一句话） | 是否满足（是/否/部分）\n"
-            "2. 只输出【工单X】格式，不要任何解释\n\n"
-            "工单记录：\n"
+            "你是SRM产品分析专家。基于以下运维工单，结合产品功能清单做分析。\n\n"
+            "【产品功能清单】\n"
+            + module_catalog +
+            "\n\n"
+            "【运维工单】\n"
             + block +
-            "\n\n输出：")
+            "\n\n"
+            "输出要求：\n"
+            "1. 直接输出正文，不要任何开篇客套语\n"
+            "2. 结构如下：\n\n"
+            "## 模块使用情况\n"
+            "【已用】：模块A、模块B...\n"
+            "【未用】：模块C、模块D...\n\n"
+            "## 已用模块功能分析\n"
+            "### 模块A\n"
+            "  【已用功能】：功能a、功能b\n"
+            "  【未用功能】：功能c、功能d\n"
+            "### 模块B\n"
+            "  【已用功能】：功能x\n"
+            "  【未用功能】：功能y、功能z\n"
+            "...\n\n"
+            "请开始分析："
+        )
 
         try:
             resp = requests.post(
                 LLM_BASE_URL + "/chat/completions",
                 headers={"Authorization": "Bearer " + LLM_API_KEY, "Content-Type": "application/json"},
                 json={"model": LLM_MODEL, "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1, "max_tokens": 2000},
-                timeout=120
+                      "temperature": 0.1, "max_tokens": 3000},
+                timeout=180
             )
-            if resp.status_code == 200:
-                text = resp.json()["choices"][0]["message"]["content"]
-                for line in text.split("\n"):
-                    line = line.strip()
-                    if not line.startswith("【工单"):
-                        continue
-                    m_mod = re.search(r"模块[：:]([^|\n]+)", line)
-                    m_pain = re.search(r"痛点[：:]([^|\n]+)", line)
-                    m_sat = re.search(r"满足[：:]([^|\n]+)", line)
-                    if m_mod:
-                        mod = m_mod.group(1).strip()
-                        if mod and len(mod) > 1:
-                            module_count[mod] = module_count.get(mod, 0) + 1
-                    if m_pain and m_sat:
-                        pain = m_pain.group(1).strip()
-                        sat = m_sat.group(1).strip()
-                        if pain:
-                            pain_points.append(pain)
-                        if "否" in sat or "不满足" in sat:
-                            unsatisfied.append(pain)
+            if resp.status_code != 200:
+                print(f"    LLM API错误 {resp.status_code}: {resp.text[:200]}")
+                continue
+
+            text = resp.json()["choices"][0]["message"]["content"]
+
+            # 解析 "【已用】"
+            m_used = re.search(r"【已用】\s*[:：]?\s*(.+?)(?:\n|【未用】|$)", text, re.DOTALL)
+            if m_used:
+                for mod in re.findall(r'[^，,\s、；;]+', m_used.group(1)):
+                    all_used_modules.add(mod.strip())
+
+            # 解析 "【未用】"
+            m_unused = re.search(r"【未用】\s*[:：]?\s*(.+?)(?:\n##|\Z)", text, re.DOTALL)
+            if m_unused:
+                for mod in re.findall(r'[^，,\s、；;]+', m_unused.group(1)):
+                    all_unused_modules.add(mod.strip())
+
+            # 解析 "## 已用模块功能分析" 块
+            func_block = re.search(r"## 已用模块功能分析\s*\n(.+)", text, re.DOTALL)
+            if func_block:
+                func_text = func_block.group(1)
+                # 匹配每个 ### 模块 块
+                for mod_match in re.finditer(r"###\s*(.+?)\s*\n(.+?)(?=###|\Z)", func_text, re.DOTALL):
+                    mod_name = mod_match.group(1).strip()
+                    content = mod_match.group(2)
+
+                    used_f = re.search(r"【已用功能】\s*[:：]?\s*(.+?)(?:\n|【未用功能】|$)", content, re.DOTALL)
+                    unused_f = re.search(r"【未用功能】\s*[:：]?\s*(.+?)(?:\n|$)", content, re.DOTALL)
+
+                    if used_f:
+                        feats = [f.strip() for f in re.findall(r'[^，,\s、；;]+', used_f.group(1)) if f.strip()]
+                        if feats:
+                            all_used_features[mod_name] = all_used_features.get(mod_name, []) + feats
+                    if unused_f:
+                        feats = [f.strip() for f in re.findall(r'[^，,\s、；;]+', unused_f.group(1)) if f.strip()]
+                        if feats:
+                            all_unused_features[mod_name] = all_unused_features.get(mod_name, []) + feats
+
         except Exception as e:
-            print(f"    LLM调用失败: {e}")
+            print(f"    LLM调用异常: {e}")
+
         print(f"    已处理 {min(i + batch_size, len(records))}/{len(records)} 条工单")
-    return {"模块统计": module_count, "痛点": pain_points, "未满足": unsatisfied}
+
+    # 去重
+    for k in all_used_features:
+        all_used_features[k] = list(dict.fromkeys(all_used_features[k]))
+    for k in all_unused_features:
+        all_unused_features[k] = list(dict.fromkeys(all_unused_features[k]))
+
+    return {
+        "已用模块": sorted(all_used_modules),
+        "未用模块": sorted(all_unused_modules),
+        "已用功能": dict(all_used_features),
+        "未用功能": dict(all_unused_features),
+    }
 
 
 def _extract_workorder_summary(client_dir: str, year: int) -> dict:
+    """返回供报告使用的工单分析结果字典（仅包含list值，兼容modules_by_source）。"""
     import os
     ops_dir = os.path.join(client_dir, "运维工单")
     if not os.path.isdir(ops_dir):
@@ -283,15 +355,29 @@ def _extract_workorder_summary(client_dir: str, year: int) -> dict:
     if not all_records:
         print(f"  无{year}年工单数据")
         return {}
-    print(f"  共{len(all_records)}条工单，LLM语义分析中...")
+    print(f"  共{len(all_records)}条工单，LLM模块分析中...")
     summary = _llm_extract_from_workorders(all_records)
-    top = sorted(summary["模块统计"].items(), key=lambda x: -x[1])[:10]
-    top_str = ", ".join([f"{m}({c}次)" for m, c in top])
+
+    used = summary["已用模块"]
+    unused = summary["未用模块"]
+    used_str = "、".join(used) if used else "无"
+    unused_str = "、".join(unused) if unused else "无"
+
+    # 保存到全局变量，供 main() 中的报告生成使用
+    global _last_workorder_summary
+    _last_workorder_summary = summary
+
     return {
-        f"运维工单({year}年)": [f"共{len(all_records)}条工单，高频模块：{top_str}"],
-        "痛点摘要": summary["痛点"][:5],
-        "未满足需求": summary["未满足"][:5],
+        f"运维工单({year}年)": [
+            f"共{len(all_records)}条工单",
+            f"已用模块：{used_str}",
+            f"未用模块：{unused_str}",
+        ],
     }
+
+
+# 全局变量，存储最近一次工单分析的完整结果（供 main() 使用）
+_last_workorder_summary = None
 
 
 def _extract_from_workorder_simple(filepath: str) -> list:
@@ -462,13 +548,26 @@ def call_llm(messages: list) -> str:
 
 def generate_report(client_name: str, modules_by_source: dict,
                     product_results: list, output_path: str = None,
-                    output_format: str = "md") -> str:
-    # 合并所有模块
+                    output_format: str = "md",
+                    workorder_summary: dict = None) -> str:
+    # 合并所有模块（排除dict类型的元数据）
     all_mods_by_src = []
     for src, mods in modules_by_source.items():
+        if not isinstance(mods, list):
+            continue
         for m in mods:
             all_mods_by_src.append(f"- {m}（来源：{src}）")
     used_text = "\n".join(all_mods_by_src) if all_mods_by_src else "（未能提取到模块信息）"
+
+    # 如果有工单分析结果，补充已用/未用模块信息
+    workorder_text = ""
+    if workorder_summary:
+        used = workorder_summary.get("已用模块", [])
+        unused = workorder_summary.get("未用模块", [])
+        if used:
+            workorder_text += f"\n【运维工单分析 - 已用模块】：{'、'.join(used)}"
+        if unused:
+            workorder_text += f"\n【运维工单分析 - 未用模块】：{'、'.join(unused)}"
 
     prod_text = "\n".join([
         f"- {p[0].get('module','')}/{p[0].get('type','')}: {p[0].get('text','')[:80]}..."
@@ -481,6 +580,7 @@ def generate_report(client_name: str, modules_by_source: dict,
 
 已用/已购模块（多数据源）：
 {used_text}
+{workorder_text}
 
 产品功能库（部分）：
 {prod_text}
@@ -489,10 +589,8 @@ def generate_report(client_name: str, modules_by_source: dict,
 1. 直接输出正文，不要任何开篇客套语
 2. 标题用##，加粗用**文字**
 3. 输出结构：
-## 客户：{client_name}
-## 数据来源：{', '.join(modules_by_source.keys()) if modules_by_source else '无'}
 
-## 1. 已用功能概览（综合所有数据源）
+## 1. 已用功能概览
 
 ## 2. 功能缺口
 ### 2.1 已购未充分使用
@@ -578,9 +676,17 @@ def main():
     results = search_points(query, top_k=50)
     print(f"   Found {len(results)} product features")
 
-    print("\n[AI] Generating analysis report...")
+    # 提取所有模块名列表（排除dict类型的元数据）
+    all_mod_names = sum([m for m in modules_by_source.values() if isinstance(m, list)], [])
+    query = " ".join(all_mod_names[:15]) if len(" ".join(all_mod_names[:15])) > 10 else "SRM采购管理供应商合同订单"
+
+    print(f"  已用模块: {len(_last_workorder_summary['已用模块']) if _last_workorder_summary else 0}")
+    print(f"  未用模块: {len(_last_workorder_summary['未用模块']) if _last_workorder_summary else 0}")
+
+    print(f"\n[AI] Generating analysis report...")
     report = generate_report(client_name, modules_by_source, results,
-                            args.output, args.format)
+                            args.output, args.format,
+                            workorder_summary=_last_workorder_summary)
 
     print(f"\n{'='*60}\nGap Analysis Report\n{'='*60}\n{report}")
 

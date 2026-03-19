@@ -209,11 +209,14 @@ def _read_workorder_batch(filepath: str, year: int) -> list:
     return records
 
 
-def _llm_extract_from_workorders(records: list, batch_size: int = 10) -> dict:
-    """基于产品功能清单，提取运维工单中的模块使用情况和功能使用情况。"""
+def _llm_extract_from_workorders(records: list, batch_size: int = None) -> dict:
+    """基于产品功能清单提取运维工单中的模块使用情况和功能使用情况。
+
+    参数 batch_size 已废弃（保留签名兼容）：现在一次性送全部记录，不分批。
+    """
     import requests, re, json
 
-    # 加载产品功能层级
+    # 读取产品功能层级
     hierarchy_path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
         "references", "product_modules_hierarchy.json"
@@ -221,121 +224,115 @@ def _llm_extract_from_workorders(records: list, batch_size: int = 10) -> dict:
     with open(hierarchy_path, encoding="utf-8") as f:
         module_list = json.load(f)
 
-    # 构建 prompt 中的模块清单（带序号）
+    # 构造 prompt 中的模块清单
     mod_lines = []
     for m in module_list:
-        mod_lines.append(f"- {m['module']}：{', '.join(m['features'])}")
+        mod_lines.append("- %s：%s" % (m["module"], ", ".join(m["features"])))
     module_catalog = "\n".join(mod_lines)
 
-    all_used_modules = set()
-    all_unused_modules = set()
-    all_used_features = {}   # {模块名: [功能列表]}
-    all_unused_features = {}  # {模块名: [功能列表]}
-
-    for i in range(0, len(records), batch_size):
-        batch = records[i:i + batch_size]
-        items = []
-        for j, rec in enumerate(batch, 1):
-            items.append(
-                "【工单{}】\n标题：{}\n描述：{}\n解决方案：{}\n根本原因：{}".format(
-                    j,
-                    rec.get("标题", ""),
-                    rec.get("描述", "")[:300] if rec.get("描述") else "",
-                    rec.get("解决方案", "")[:200] if rec.get("解决方案") else "",
-                    rec.get("根本原因", "")[:150] if rec.get("根本原因") else ""
-                )
+    # 一次性拼接所有工单
+    items = []
+    for j, rec in enumerate(records, 1):
+        items.append(
+            "[工单%d]\n标题：%s\n描述：%s\n解决方案：%s\n根本原因：%s" % (
+                j,
+                rec.get("标题", ""),
+                (rec.get("描述") or "")[:300],
+                (rec.get("解决方案") or "")[:200],
+                (rec.get("根本原因") or "")[:150]
             )
-        block = "\n\n".join(items)
-
-        prompt = (
-            "你是SRM产品分析专家。基于以下运维工单，结合产品功能清单做分析。\n\n"
-            "【产品功能清单】\n"
-            + module_catalog +
-            "\n\n"
-            "【运维工单】\n"
-            + block +
-            "\n\n"
-            "输出要求：\n"
-            "1. 直接输出正文，不要任何开篇客套语\n"
-            "2. 结构如下：\n\n"
-            "## 模块使用情况\n"
-            "【已用】：模块A、模块B...\n"
-            "【未用】：模块C、模块D...\n\n"
-            "## 已用模块功能分析\n"
-            "### 模块A\n"
-            "  【已用功能】：功能a、功能b\n"
-            "  【未用功能】：功能c、功能d\n"
-            "### 模块B\n"
-            "  【已用功能】：功能x\n"
-            "  【未用功能】：功能y、功能z\n"
-            "...\n\n"
-            "请开始分析："
         )
+    block = "\n\n".join(items)
 
-        try:
-            resp = requests.post(
-                LLM_BASE_URL + "/chat/completions",
-                headers={"Authorization": "Bearer " + LLM_API_KEY, "Content-Type": "application/json"},
-                json={"model": LLM_MODEL, "messages": [{"role": "user", "content": prompt}],
-                      "temperature": 0.1, "max_tokens": 3000},
-                timeout=180
-            )
-            if resp.status_code != 200:
-                print(f"    LLM API错误 {resp.status_code}: {resp.text[:200]}")
-                continue
+    prompt = (
+        "你是SRM产品分析专家。基于以下运维工单，结合产品功能清单做分析。\n\n"
+        "【产品功能清单】\n"
+        + module_catalog + "\n\n"
+        "【运维工单】\n"
+        + block + "\n\n"
+        "输出要求：\n"
+        "1. 直接输出正文，不要任何开篇客套语\n"
+        "2. 结构如下：\n\n"
+        "## 模块使用情况\n"
+        "【已用】：<模块名列表>\n"
+        "【未用】：<模块名列表>\n\n"
+        "## 已用模块功能分析\n"
+        "### <模块名>\n"
+        "  【已用功能】：<功能列表>\n"
+        "  【未用功能】：<功能列表>\n"
+        "...（每个已用模块都要分析）\n\n"
+        "请开始分析"
+    )
 
+    print("    发送全部 %d 条工单到 LLM（单批次模式）..." % len(records))
+
+    used_modules = []
+    unused_modules = []
+    used_features = {}
+    unused_features = {}
+
+    try:
+        resp = requests.post(
+            LLM_BASE_URL + "/chat/completions",
+            headers={"Authorization": "Bearer " + LLM_API_KEY, "Content-Type": "application/json"},
+            json={"model": LLM_MODEL, "messages": [{"role": "user", "content": prompt}],
+                  "temperature": 0.1, "max_tokens": 3000},
+            timeout=600
+        )
+        if resp.status_code != 200:
+            print("    LLM API错误 %s: %s" % (resp.status_code, resp.text[:200]))
+        else:
             text = resp.json()["choices"][0]["message"]["content"]
 
-            # 解析 "【已用】"
+            # 解析【已用】
             m_used = re.search(r"【已用】\s*[:：]?\s*(.+?)(?:\n|【未用】|$)", text, re.DOTALL)
             if m_used:
                 for mod in re.findall(r'[^，,\s、；;]+', m_used.group(1)):
-                    all_used_modules.add(mod.strip())
+                    mod = mod.strip()
+                    if mod:
+                        used_modules.append(mod)
 
-            # 解析 "【未用】"
+            # 解析【未用】
             m_unused = re.search(r"【未用】\s*[:：]?\s*(.+?)(?:\n##|\Z)", text, re.DOTALL)
             if m_unused:
                 for mod in re.findall(r'[^，,\s、；;]+', m_unused.group(1)):
-                    all_unused_modules.add(mod.strip())
+                    mod = mod.strip()
+                    if mod:
+                        unused_modules.append(mod)
 
-            # 解析 "## 已用模块功能分析" 块
+            # 解析功能分析块
             func_block = re.search(r"## 已用模块功能分析\s*\n(.+)", text, re.DOTALL)
             if func_block:
                 func_text = func_block.group(1)
-                # 匹配每个 ### 模块 块
                 for mod_match in re.finditer(r"###\s*(.+?)\s*\n(.+?)(?=###|\Z)", func_text, re.DOTALL):
                     mod_name = mod_match.group(1).strip()
-                    content = mod_match.group(2)
+                    fc = mod_match.group(2)
 
-                    used_f = re.search(r"【已用功能】\s*[:：]?\s*(.+?)(?:\n|【未用功能】|$)", content, re.DOTALL)
-                    unused_f = re.search(r"【未用功能】\s*[:：]?\s*(.+?)(?:\n|$)", content, re.DOTALL)
+                    used_f = re.search(r"【已用功能】\s*[:：]?\s*(.+?)(?:\n|【未用功能】|$)", fc, re.DOTALL)
+                    unused_f = re.search(r"【未用功能】\s*[:：]?\s*(.+?)(?:\n|$)", fc, re.DOTALL)
 
                     if used_f:
                         feats = [f.strip() for f in re.findall(r'[^，,\s、；;]+', used_f.group(1)) if f.strip()]
                         if feats:
-                            all_used_features[mod_name] = all_used_features.get(mod_name, []) + feats
+                            used_features[mod_name] = feats
                     if unused_f:
                         feats = [f.strip() for f in re.findall(r'[^，,\s、；;]+', unused_f.group(1)) if f.strip()]
                         if feats:
-                            all_unused_features[mod_name] = all_unused_features.get(mod_name, []) + feats
+                            unused_features[mod_name] = feats
 
-        except Exception as e:
-            print(f"    LLM调用异常: {e}")
+            print("    LLM 分析完成，已用模块 %d 个" % len(set(used_modules)))
 
-        print(f"    已处理 {min(i + batch_size, len(records))}/{len(records)} 条工单")
-
-    # 去重
-    for k in all_used_features:
-        all_used_features[k] = list(dict.fromkeys(all_used_features[k]))
-    for k in all_unused_features:
-        all_unused_features[k] = list(dict.fromkeys(all_unused_features[k]))
+    except Exception as e:
+        print("    LLM调用异常: %s" % e)
 
     return {
-        "已用模块": sorted(all_used_modules),
-        "未用模块": sorted(all_unused_modules),
-        "已用功能": dict(all_used_features),
-        "未用功能": dict(all_unused_features),
+        "已用模块": sorted(set(used_modules)),
+        "未用模块": sorted(set(unused_modules)),
+        "已用功能": used_features,
+        "未用功能": unused_features,
     }
+
+
 
 
 def _extract_workorder_summary(client_dir: str, year: int) -> dict:

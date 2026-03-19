@@ -1,0 +1,3 @@
+﻿*.pyc
+tmp_*.txt
+__pycache__/

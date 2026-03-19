@@ -156,17 +156,22 @@ class MarkdownToDocxConverter:
     
     def _add_paragraph_with_formatting(self, text: str):
         """添加段落并处理基本格式"""
-        # 处理粗体 **text**
         paragraph = self.doc.add_paragraph()
-        
-        # 简单的格式处理
-        parts = re.split(r'(\*\*[^*]+\*\*)', text)
-        for part in parts:
-            if part.startswith('**') and part.endswith('**'):
-                run = paragraph.add_run(part[2:-2])
-                run.bold = True
-            else:
-                paragraph.add_run(part)
+
+        # 用 findall 精确提取 bold 内容，避免正则 split 的歧义问题
+        bold_pattern = re.compile(r'\*\*([^*]+)\*\*')
+        last_end = 0
+        for match in bold_pattern.finditer(text):
+            # 添加匹配之前的普通文本
+            if match.start() > last_end:
+                paragraph.add_run(text[last_end:match.start()])
+            # 添加 bold 文本
+            run = paragraph.add_run(match.group(1))
+            run.bold = True
+            last_end = match.end()
+        # 添加剩余文本
+        if last_end < len(text):
+            paragraph.add_run(text[last_end:])
     
     def _add_code_block(self, code: str):
         """添加代码块"""

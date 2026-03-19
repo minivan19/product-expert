@@ -209,131 +209,193 @@ def _read_workorder_batch(filepath: str, year: int) -> list:
     return records
 
 
-def _llm_extract_from_workorders(records: list, batch_size: int = None) -> dict:
-    """基于产品功能清单提取运维工单中的模块使用情况和功能使用情况。
 
-    参数 batch_size 已废弃（保留签名兼容）：现在一次性送全部记录，不分批。
+def _llm_extract_from_workorders(records: list, batch_size: int = None, bought_modules: list = None) -> dict:
+    """三相方案：Phase1模块分类 + Phase2A子功能 + Phase2B障碍分析。
+
+    bought_modules: 合同买了的模块列表（来自主数据），可None。
+    返回：{已用模块, 未用模块, 买了没用模块, 已用功能, 未用功能, 障碍分析}
     """
-    import requests, re, json
-
-    # 读取产品功能层级
-    hierarchy_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)),
-        "references", "product_modules_hierarchy.json"
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_llm_workorder_phases",
+        os.path.join(os.path.dirname(__file__), "_llm_workorder_phases.py")
     )
-    with open(hierarchy_path, encoding="utf-8") as f:
-        module_list = json.load(f)
+    phases_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(phases_mod)
 
-    # 构造 prompt 中的模块清单
-    mod_lines = []
-    for m in module_list:
-        mod_lines.append("- %s：%s" % (m["module"], ", ".join(m["features"])))
-    module_catalog = "\n".join(mod_lines)
+    # 直接调用三个 phase
+    hierarchy = phases_mod.load_hierarchy()
 
-    # 一次性拼接所有工单
-    items = []
-    for j, rec in enumerate(records, 1):
-        items.append(
-            "[工单%d]\n标题：%s\n描述：%s\n解决方案：%s\n根本原因：%s" % (
-                j,
-                rec.get("标题", ""),
-                (rec.get("描述") or "")[:300],
-                (rec.get("解决方案") or "")[:200],
-                (rec.get("根本原因") or "")[:150]
+    # 复用 build_block
+    def build_block(recs):
+        items = []
+        for j, rec in enumerate(recs, 1):
+            items.append(
+                "[工单%d]\n标题：%s\n描述：%s" % (
+                    j,
+                    rec.get("标题", ""),
+                    (rec.get("描述") or "")[:200]
+                )
             )
-        )
-    block = "\n\n".join(items)
+        return "\n\n".join(items)
 
-    prompt = (
-        "你是SRM产品分析专家。基于以下运维工单，结合产品功能清单做分析。\n\n"
-        "【产品功能清单】\n"
-        + module_catalog + "\n\n"
+    block = build_block(records)
+
+    # 标准模块名列表（用于 Phase1 prompt）
+    std_names = [item["module"] for item in hierarchy]
+    mod_catalog = "\n".join(["- %s" % n for n in std_names])
+
+    # ── Phase 1 ──────────────────────────────────────────────
+    prompt_p1 = (
+        "你是SRM产品分析专家。基于运维工单，判断客户在每个模块的使用情况。\n\n"
+        "【产品功能模块清单】\n"
+        + mod_catalog + "\n\n"
         "【运维工单】\n"
         + block + "\n\n"
         "输出要求：\n"
         "1. 直接输出正文，不要任何开篇客套语\n"
-        "2. 结构如下：\n\n"
+        "2. 只判断模块，不分析子功能\n"
+        "3. 判断标准：\n"
+        "   - 【已用】：买了这个模块，且工单中频繁出现，说明实际在用\n"
+        "   - 【买了没用】：买了这个模块，但工单中没有或极少出现，说明买了没真正用起来\n"
+        "   - 【未用】：没买这个模块，或者买了但工单中完全没有涉及\n"
+        "4. 结构如下：\n\n"
         "## 模块使用情况\n"
-        "【已用】：<模块名列表>\n"
-        "【未用】：<模块名列表>\n\n"
-        "## 已用模块功能分析\n"
-        "### <模块名>\n"
-        "  【已用功能】：<功能列表>\n"
-        "  【未用功能】：<功能列表>\n"
-        "...（每个已用模块都要分析）\n\n"
+        "【已用】：<模块列表>\n"
+        "【买了没用】：<模块列表>\n"
+        "【未用】：<模块列表>\n\n"
         "请开始分析"
     )
 
-    print("    发送全部 %d 条工单到 LLM（单批次模式）..." % len(records))
+    print("    [Phase1] 判断三分类...")
+    raw_p1 = call_llm([{"role": "user", "content": prompt_p1}])
 
-    used_modules = []
-    unused_modules = []
-    used_features = {}
-    unused_features = {}
+    def extract_cat(text, key):
+        for prefix in ["【%s】：" % key, "【%s】: " % key]:
+            idx = text.rfind(prefix)
+            if idx == -1:
+                continue
+            seg = text[idx + len(prefix):]
+            end = len(seg)
+            for p in ["【", "##"]:
+                e = seg.find(p)
+                if e != -1 and e < end:
+                    end = e
+            raw = seg[:end].strip()
+            import re as _re
+            items = _re.split(r'[、，,;；\n]+', raw)
+            result = [it.strip().strip('，。、.').strip() for it in items if it.strip() and len(it.strip()) > 1]
+            if result:
+                return result
+        return []
 
-    try:
-        resp = requests.post(
-            LLM_BASE_URL + "/chat/completions",
-            headers={"Authorization": "Bearer " + LLM_API_KEY, "Content-Type": "application/json"},
-            json={"model": LLM_MODEL, "messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0.1, "max_tokens": 3000},
-            timeout=600
+    used = extract_cat(raw_p1, "已用")
+    bought_unused = extract_cat(raw_p1, "买了没用")
+    unused = extract_cat(raw_p1, "未用")
+    print("    Phase1完成: 已用(%d) 买了没用(%d) 未用(%d)" % (len(used), len(bought_unused), len(unused)))
+
+    # ── Phase 2A ─────────────────────────────────────────────
+    used_funcs = {}
+    if used:
+        target = {item["module"]: item.get("features", []) for item in hierarchy if item["module"] in used}
+        func_cat = "\n".join(["- %s：%s" % (n, ", ".join(fs)) for n, fs in target.items()])
+        prompt_p2a = (
+            "你是SRM产品分析专家。基于运维工单，分析已用模块的子功能使用情况。\n\n"
+            "【已用模块及其子功能清单】\n"
+            + func_cat + "\n\n"
+            "【运维工单】\n"
+            + block + "\n\n"
+            "输出要求：\n"
+            "1. 直接输出正文，不要任何开篇客套语\n"
+            "2. 针对每个已用模块，列出工单中实际出现的具体功能（只列工单里有的，不要编造）\n"
+            "3. 结构如下：\n\n"
+            "## 已用模块功能分析\n"
+            "### <模块名>\n"
+            "  【已用功能】：<工单中实际用到的具体功能>\n"
+            "  【未用功能】：<该模块下工单中完全没有涉及的功能>\n"
+            "...（每个已用模块都要分析）\n\n"
+            "请开始分析"
         )
-        if resp.status_code != 200:
-            print("    LLM API错误 %s: %s" % (resp.status_code, resp.text[:200]))
-        else:
-            text = resp.json()["choices"][0]["message"]["content"]
+        print("    [Phase2A] 深挖%d个已用模块子功能..." % len(used))
+        raw_p2a = call_llm([{"role": "user", "content": prompt_p2a}])
+        import re as _re2
+        cur_mod = None
+        for line in raw_p2a.split('\n'):
+            line_s = line.strip()
+            if not line_s:
+                continue
+            m = _re2.match(r'#{1,3}\s*(.+?)\s*$', line)
+            if m:
+                cur_mod = m.group(1).strip()
+                if cur_mod not in used_funcs:
+                    used_funcs[cur_mod] = {"已用": [], "未用": []}
+                continue
+            if not cur_mod:
+                continue
+            for p, key in [("【已用功能】：", "已用"), ("【未用功能】：", "未用")]:
+                if p in line:
+                    items = _re2.split(r'[、，,;；\n]+', line.split(p)[-1])
+                    for f in items:
+                        f = f.strip().strip('，。、.').strip()
+                        if f and len(f) > 1:
+                            used_funcs[cur_mod][key].append(f)
 
-            # 解析【已用】
-            m_used = re.search(r"【已用】\s*[:：]?\s*(.+?)(?:\n|【未用】|$)", text, re.DOTALL)
-            if m_used:
-                for mod in re.findall(r'[^，,\s、；;]+', m_used.group(1)):
-                    mod = mod.strip()
-                    if mod:
-                        used_modules.append(mod)
-
-            # 解析【未用】
-            m_unused = re.search(r"【未用】\s*[:：]?\s*(.+?)(?:\n##|\Z)", text, re.DOTALL)
-            if m_unused:
-                for mod in re.findall(r'[^，,\s、；;]+', m_unused.group(1)):
-                    mod = mod.strip()
-                    if mod:
-                        unused_modules.append(mod)
-
-            # 解析功能分析块
-            func_block = re.search(r"## 已用模块功能分析\s*\n(.+)", text, re.DOTALL)
-            if func_block:
-                func_text = func_block.group(1)
-                for mod_match in re.finditer(r"###\s*(.+?)\s*\n(.+?)(?=###|\Z)", func_text, re.DOTALL):
-                    mod_name = mod_match.group(1).strip()
-                    fc = mod_match.group(2)
-
-                    used_f = re.search(r"【已用功能】\s*[:：]?\s*(.+?)(?:\n|【未用功能】|$)", fc, re.DOTALL)
-                    unused_f = re.search(r"【未用功能】\s*[:：]?\s*(.+?)(?:\n|$)", fc, re.DOTALL)
-
-                    if used_f:
-                        feats = [f.strip() for f in re.findall(r'[^，,\s、；;]+', used_f.group(1)) if f.strip()]
-                        if feats:
-                            used_features[mod_name] = feats
-                    if unused_f:
-                        feats = [f.strip() for f in re.findall(r'[^，,\s、；;]+', unused_f.group(1)) if f.strip()]
-                        if feats:
-                            unused_features[mod_name] = feats
-
-            print("    LLM 分析完成，已用模块 %d 个" % len(set(used_modules)))
-
-    except Exception as e:
-        print("    LLM调用异常: %s" % e)
+    # ── Phase 2B ─────────────────────────────────────────────
+    barrier_results = {}
+    if bought_unused:
+        target = {item["module"]: item.get("features", []) for item in hierarchy if item["module"] in bought_unused}
+        barrier_cat = "\n".join(["- %s：%s" % (n, ", ".join(fs)) for n, fs in target.items()])
+        prompt_p2b = (
+            "你是SRM产品分析专家。基于运维工单，分析以下模块为什么买了但没有实际使用。\n\n"
+            "【买了没用的模块及其子功能】\n"
+            + barrier_cat + "\n\n"
+            "【运维工单】\n"
+            + block + "\n\n"
+            "输出要求：\n"
+            "1. 直接输出正文，不要任何开篇客套语\n"
+            "2. 分析每个模块没被使用的原因/障碍\n"
+            "3. 结构如下：\n\n"
+            "## 买了没用模块分析\n"
+            "### <模块名>\n"
+            "  【障碍】：<为什么没用起来>\n"
+            "  【可挖掘机会】：<如果启用，能解决什么问题>\n"
+            "...（每个买了没用的模块都要分析）\n\n"
+            "请开始分析"
+        )
+        print("    [Phase2B] 分析%d个买了没用模块障碍..." % len(bought_unused))
+        raw_p2b = call_llm([{"role": "user", "content": prompt_p2b}])
+        import re as _re3
+        cur_mod = None
+        for line in raw_p2b.split('\n'):
+            line_s = line.strip()
+            if not line_s:
+                continue
+            m = _re3.match(r'#{1,3}\s*(.+?)\s*$', line)
+            if m:
+                cur_mod = m.group(1).strip()
+                if cur_mod not in barrier_results:
+                    barrier_results[cur_mod] = {"障碍": [], "机会": []}
+                continue
+            if not cur_mod:
+                continue
+            for p, key in [("【障碍】：", "障碍"), ("【原因】：", "障碍"),
+                            ("【可挖掘机会】：", "机会"), ("【机会】：", "机会")]:
+                if p in line:
+                    items = _re3.split(r'[、，,;；\n]+', line.split(p)[-1])
+                    for f in items:
+                        f = f.strip().strip('，。、.').strip()
+                        if f and len(f) > 1:
+                            barrier_results[cur_mod][key].append(f)
 
     return {
-        "已用模块": sorted(set(used_modules)),
-        "未用模块": sorted(set(unused_modules)),
-        "已用功能": used_features,
-        "未用功能": unused_features,
+        "已用模块": sorted(set(used)),
+        "未用模块": sorted(set(unused)),
+        "买了没用模块": sorted(set(bought_unused)),
+        "已用功能": used_funcs,
+        "未用功能": {},
+        "障碍分析": barrier_results,
     }
-
-
-
 
 def _extract_workorder_summary(client_dir: str, year: int) -> dict:
     """返回供报告使用的工单分析结果字典（仅包含list值，兼容modules_by_source）。"""

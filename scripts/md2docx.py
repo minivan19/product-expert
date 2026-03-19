@@ -140,19 +140,21 @@ class MarkdownToDocxConverter:
             # 创建新表格
             self.current_table = self.doc.add_table(rows=1, cols=len(cells))
             self.current_table.style = 'Table Grid'
-            
+
             # 添加表头
             header_cells = self.current_table.rows[0].cells
             for i, cell_text in enumerate(cells):
                 if i < len(header_cells):
-                    header_cells[i].text = cell_text
+                    # 去掉星号再写入
+                    header_cells[i].text = cell_text.replace('**', '')
         else:
             # 添加数据行
             if self.current_table:
                 row = self.current_table.add_row()
                 for i, cell_text in enumerate(cells):
                     if i < len(row.cells):
-                        row.cells[i].text = cell_text
+                        # 去掉星号再写入
+                        row.cells[i].text = cell_text.replace('**', '')
     
     def _add_paragraph_with_formatting(self, text: str):
         """添加段落并处理基本格式"""

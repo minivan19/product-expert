@@ -299,7 +299,10 @@ def generate_report(client_name: str, modules_by_source: dict,
 产品功能库（部分）：
 {prod_text}
 
-请输出：
+输出要求：
+1. 直接输出正文，不要任何开篇客套语
+2. 标题用##，加粗用**文字**
+3. 输出结构：
 ## 客户：{client_name}
 ## 数据来源：{', '.join(modules_by_source.keys()) if modules_by_source else '无'}
 
@@ -314,6 +317,17 @@ def generate_report(client_name: str, modules_by_source: dict,
 ## 4. 总结"""
 
     report = call_llm([{"role": "user", "content": prompt}])
+    # 去掉开篇客套语（如LLM说"好的，作为..."）
+    lines = report.split('\n')
+    skip_patterns = ['好的，', '作为SRM产品专家', '以下是', '我将基于', '下面为', '以下为']
+    filtered = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith('#') and any(stripped.startswith(p) for p in skip_patterns):
+            continue
+        filtered.append(line)
+    report = '\n'.join(filtered)
+
     if output_path:
         if output_format == "docx":
             # 先写md临时文件，再转docx

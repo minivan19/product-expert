@@ -68,31 +68,59 @@ def extract_from_xlsx_master(filepath: str) -> list:
 
 
 def extract_from_doc(filepath: str) -> str:
-    """用win32com读取Word文档（支持.doc和.docx）"""
+    """用win32com读取Word文档，支持.doc和.docx，30秒超时"""
+    import win32com.client
+    import pythoncom
+    import threading
+
     text_parts = []
-    try:
-        import win32com.client
-        word = win32com.client.Dispatch("Word.Application")
-        word.Visible = False
+    result = {"done": False, "error": None}
+
+    def _read():
         try:
-            doc = word.Documents.Open(os.path.abspath(filepath))
-            # 读取所有段落文字
-            for para in doc.Paragraphs:
-                t = para.Range.Text.strip()
-                if t:
-                    text_parts.append(t)
-            # 也尝试读表格
-            for table in doc.Tables:
-                for row in table.Rows:
-                    for cell in row.Cells:
-                        t = cell.Range.Text.strip()
-                        if t:
-                            text_parts.append(t)
-            doc.Close(False)
-        finally:
-            word.Quit()
-    except Exception as e:
-        print(f"    Word读取失败: {e}")
+            pythoncom.CoInitialize()  # 初始化COM
+            try:
+                word = win32com.client.Dispatch("Word.Application")
+                word.Visible = False
+                word.DisplayAlerts = False
+                try:
+                    doc = word.Documents.Open(os.path.abspath(filepath), ReadOnly=True)
+                    try:
+                        count = 0
+                        for para in doc.Paragraphs:
+                            if count >= 500:
+                                break
+                            t = para.Range.Text.strip()
+                            if t:
+                                text_parts.append(t)
+                                count += 1
+                        for i, table in enumerate(doc.Tables):
+                            if i >= 3:
+                                break
+                            for row in table.Rows:
+                                for cell in row.Cells:
+                                    t = cell.Range.Text.strip()
+                                    if t:
+                                        text_parts.append(t)
+                    finally:
+                        doc.Close(False)
+                finally:
+                    word.Quit()
+            finally:
+                pythoncom.CoUninitialize()
+            result["done"] = True
+        except Exception as e:
+            result["error"] = str(e)
+            result["done"] = True
+
+    t = threading.Thread(target=_read, daemon=True)
+    t.start()
+    t.join(timeout=30)  # 30秒超时
+    if not result["done"]:
+        print(f"    DOC读取超时（>30s），跳过: {os.path.basename(filepath)}")
+        return ""
+    if result["error"]:
+        print(f"    Word读取失败: {result['error']}")
     return "\n".join(text_parts)
 
 

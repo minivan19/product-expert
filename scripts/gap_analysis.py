@@ -61,14 +61,14 @@ def build_module_kw_map(hierarchy: list) -> dict:
             mod_name = mod_raw.split('.', 1)[1]
         else:
             mod_name = mod_raw
-        
+
         kws = set()
         kws.add(mod_name)
         if mod_name not in kws:
             kws.add(mod_name)
         for feat in item.get('features', []):
             kws.add(feat)
-        
+
         mod_map[mod_name] = {
             'module': mod_raw,
             'suite': item.get('suite', ''),
@@ -101,7 +101,7 @@ def read_bought_from_master(client_dir: str) -> set:
     master_path = os.path.join(client_dir, '基础数据')
     if not os.path.isdir(master_path):
         return set()
-    
+
     xlsx_files = [f for f in os.listdir(master_path) if f.endswith('.xlsx') and not f.startswith('~$')]
     for fn in xlsx_files:
         if '客户主数据' in fn or '主数据' in fn:
@@ -109,23 +109,23 @@ def read_bought_from_master(client_dir: str) -> set:
             break
     else:
         return set()
-    
+
     wb = openpyxl.load_workbook(fp, data_only=True)
     ws = wb.active
     row1 = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
     col_map = {str(h).strip() if h else '': i for i, h in enumerate(row1)}
-    
+
     # 找"购买模块"或"产品模块"列
     mod_col = None
     for name, idx in col_map.items():
         if '购买模块' in name or '产品模块' in name:
             mod_col = idx
             break
-    
+
     if mod_col is None:
         wb.close()
         return set()
-    
+
     bought = set()
     for row in ws.iter_rows(min_row=2, values_only=True):
         if row and row[mod_col]:
@@ -139,7 +139,7 @@ def read_bought_from_master(client_dir: str) -> set:
                     # 映射到产品模块名
                     product_mod = EXCEL_TO_PRODUCT.get(part, part)
                     bought.add(product_mod)
-    
+
     wb.close()
     return bought
 
@@ -152,28 +152,28 @@ def read_bought_from_contracts(client_dir: str) -> set:
     sub_path = os.path.join(client_dir, '订阅合同行')
     if not os.path.isdir(sub_path):
         return set()
-    
+
     xlsx_files = [f for f in os.listdir(sub_path) if f.endswith('.xlsx') and not f.startswith('~$')]
     found = None
     for fn in xlsx_files:
         if '明细' in fn or '订阅' in fn:
             found = os.path.join(sub_path, fn)
             break
-    
+
     if not found:
         return set()
-    
+
     wb = openpyxl.load_workbook(found, data_only=True)
     ws = wb.active
     row1 = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
     col_map = {str(h).strip() if h else '': i for i, h in enumerate(row1)}
-    
+
     # 产品名称列
     prod_col = col_map.get('产品名称', None)
     if prod_col is None:
         wb.close()
         return set()
-    
+
     bought = set()
     for row in ws.iter_rows(min_row=2, values_only=True):
         if row and row[prod_col]:
@@ -186,7 +186,7 @@ def read_bought_from_contracts(client_dir: str) -> set:
                 if '采购' in raw and '协同' in raw: bought.add('基础采购协同')
                 if '商城' in raw: bought.add('商城采购')
                 if '目录' in raw: bought.add('自有供应商目录化')
-    
+
     wb.close()
     return bought
 
@@ -200,18 +200,18 @@ def step1_bought_modules(client_dir: str) -> dict:
     hierarchy = load_hierarchy()
     mod_names = {m['module'].split('.', 1)[1] if '.' in m['module'][:3] else m['module']
                  for m in hierarchy}
-    
+
     # 优先合同
     contract_bought = read_bought_from_contracts(client_dir)
     master_bought = read_bought_from_master(client_dir)
-    
+
     # 合并：合同优先，合同没有的用主数据补充
     bought = contract_bought | master_bought
-    
+
     result = {}
     for mod in sorted(mod_names):
         result[mod] = mod in bought
-    
+
     print(f"  [Step1 买了没] 合同:{len(contract_bought)} 主数据:{len(master_bought)} → 合并:{len(bought)}")
     for mod, has in sorted(result.items()):
         if has:
@@ -305,21 +305,21 @@ def step2_implemented_modules(client_dir: str) -> dict:
     if not os.path.isdir(blueprint_dir):
         print("  [Step2 实施了没] 蓝图文件夹不存在")
         return {}
-    
+
     hierarchy = load_hierarchy()
     mod_kw_map = build_module_kw_map(hierarchy)
-    
+
     # 每个模块追踪：实现了哪些功能
     impl = {mod: {'implemented': set(), 'files': set()} for mod in mod_kw_map}
-    
+
     files = sorted(os.listdir(blueprint_dir))
     print(f"  [Step2 实施了没] 扫描蓝图文件: {len(files)}个")
-    
+
     for fn in files:
         fp = os.path.join(blueprint_dir, fn)
         text = extract_blueprint(fp)
         text_norm = norm(text)
-        
+
         for mod_name, mod_info in mod_kw_map.items():
             kws = mod_info['all_keywords']
             hit_feats = []
@@ -343,14 +343,14 @@ def step2_implemented_modules(client_dir: str) -> dict:
                     # 短词标记: 不在 features 里，但也记录（说明有相关蓝图）
                     if feat.startswith('[短词]') or feat in mod_info['features']:
                         impl[mod_name]['implemented'].add(feat)
-    
+
     # 汇总输出
     for mod_name, data in sorted(impl.items()):
         total_feats = len(mod_kw_map[mod_name]['features'])
         impl_count = len(data['implemented'])
         status = f"{impl_count}/{total_feats}" if total_feats > 0 else "?"
         print(f"    {'[Y]' if data['files'] else '[N]'} {mod_name}: {status}功能, {len(data['files'])}个文件")
-    
+
     return impl
 
 
@@ -391,7 +391,7 @@ def read_workorders(client_dir: str, year: int) -> list:
     ops_dir = os.path.join(client_dir, '运维工单')
     if not os.path.isdir(ops_dir):
         return []
-    
+
     all_records = []
     files = sorted([f for f in os.listdir(ops_dir) if f.endswith('.xlsx')])
     for fn in files:
@@ -436,19 +436,19 @@ def classify_3x2(bought: dict, implemented: dict, used: dict, hierarchy: list) -
     综合三步结果，输出3×2网格分类
     维度1: 买了没（bought）
     维度2: 用了多少（used count）
-    
+
     A=买了+深度使用(>5)  B=买了+轻度使用(1-5)  C=买了+未使用(0)
     D=没买+工单有        E=没买+工单无
     """
     mod_names = [m['module'].split('.', 1)[1] if '.' in m['module'][:3] else m['module']
                  for m in hierarchy]
-    
+
     result = {'A': [], 'B': [], 'C': [], 'D': [], 'E': []}
-    
+
     for mod in sorted(mod_names):
         has_bought = bought.get(mod, False)
         cnt = used.get(mod, 0)
-        
+
         if has_bought:
             if cnt > 5:
                 result['A'].append(mod)
@@ -461,14 +461,14 @@ def classify_3x2(bought: dict, implemented: dict, used: dict, hierarchy: list) -
                 result['D'].append(mod)
             else:
                 result['E'].append(mod)
-    
+
     print(f"\n  [3×2分类结果]")
-    labels = {'A': '深度应用(买了+高频>5)', 'B': '激活不足(买了+低频1-5)', 
+    labels = {'A': '深度应用(买了+高频>5)', 'B': '激活不足(买了+低频1-5)',
                'C': '买了未实施(买了+0)', 'D': '潜在需求(没买+工单有)', 'E': '空白机会(没买+工单无)'}
     for cls in 'ABCDE':
         mods = result[cls]
         print(f"    [{cls}] {labels[cls]}: {len(mods)}个 {' '.join(mods[:3])}{'...' if len(mods)>3 else ''}")
-    
+
     return result
 
 
@@ -777,7 +777,7 @@ def find_client_dir(client_name: str) -> str:
     """查找客户数据目录"""
     if not os.path.isdir(CLIENT_DATA_ROOT):
         raise FileNotFoundError(f"客户档案目录不存在: {CLIENT_DATA_ROOT}")
-    
+
     for name in os.listdir(CLIENT_DATA_ROOT):
         if client_name in name:
             return os.path.join(CLIENT_DATA_ROOT, name)
@@ -789,43 +789,48 @@ def main(client_name: str, year: int = 2025, output_path: str = None):
     print(f"\n{'='*50}")
     print(f"客户: {client_name} | 年份: {year}")
     print(f"{'='*50}")
-    
+
     hierarchy = load_hierarchy()
     client_dir = find_client_dir(client_name)
-    
+
     # Step 1: 买了没
     print(f"\n[Step1] 买了哪些模块？")
     bought = step1_bought_modules(client_dir)
-    
+
     # Step 2: 实施了没
     print(f"\n[Step2] 哪些模块已实施？")
     impl = step2_implemented_modules(client_dir)
-    
+
     # Step 3: 用了没
     print(f"\n[Step3] 工单中使用情况？")
     used_data = step3_used_modules(client_dir, year)
     used = used_data['module']          # {module: count}，用于3×2分类
     feature_counts = used_data['feature']  # {module: {feature: count}}，用于推荐详情
-    
+
     # 3×2 分类
     print(f"\n[综合] 3×2网格分类")
     grid = classify_3x2(bought, impl, used, hierarchy)
-    
+
     # 生成推荐
     print(f"\n[推荐] 生成激活建议...")
     recs = generate_recommendations(grid, used, client_name, impl, hierarchy,
                                    client_dir, feature_counts)
-    
+
     # 组装报告
     report = build_report(client_name, bought, impl, used, grid, recs)
-    
+
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     if output_path:
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(report)
-        print(f"\n报告已保存: {output_path}")
+        try:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(report)
+            print(f"\n报告已保存: {output_path}")
+        except Exception as e:
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+            print(f"\n报告保存失败: {e}")
     else:
         print(report)
-    
+
     return grid, recs
 
 
@@ -875,7 +880,7 @@ if __name__ == '__main__':
     parser.add_argument('--year', type=int, default=2025)
     parser.add_argument('--output', help='输出Markdown文件路径')
     args = parser.parse_args()
-    
+
     try:
         main(args.client, args.year, args.output)
     except FileNotFoundError as e:

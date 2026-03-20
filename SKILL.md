@@ -71,9 +71,16 @@ description: >-
 |------|--------|------|------|-----|
 | Step1 买了没 | 合同xlsx（优先）→ 主数据xlsx（备选） | .xlsx | 关键词匹配 | 否 |
 | Step2 实施了没 | 蓝图方案文件夹 | .doc/.pptx/.pdf | 内容关键词匹配 | 否 |
-| Step3 用了没 | 运维工单文件夹 | .xlsx | LLM语义凝练 | **是** |
+| Step3 用了没 | 运维工单文件夹 | .xlsx | DeepSeek LLM并行提取（5并发） | **是** |
 
 **支持格式**：xlsx / PDF / DOC / DOCX（自动识别处理）
+
+**Step3 术语映射系统**：
+- LLM 提取工单中的业务术语（如"采购订单"、"送货单"、"供应商准入"）
+- 术语通过 `term_map.py` 映射到 (模块, 功能) 对
+- 内置 `BUILTIN_TERM_MAP`（50+ 条核心映射）+ `term_feedback.json`（用户确认的扩展映射）
+- 新术语自动进入待确认队列，通过交互完成映射闭环
+- API 配置从 `~/.openclaw/openclaw.json` 自动读取 DeepSeek key
 
 ## 脚本说明
 
@@ -107,6 +114,15 @@ python scripts/gap_analysis.py 诺斯贝尔
 python scripts/gap_analysis.py 诺斯贝尔 --year 2025
 python scripts/gap_analysis.py 诺斯贝尔 --output 缺口报告.md
 ```
+
+### term_map.py（内部模块）
+**用途**：Step3 术语提取 + 映射管理
+**功能**：
+- `BUILTIN_TERM_MAP`：50+ 条核心业务术语 → (模块, 功能) 映射
+- `term_feedback.json`：用户确认的扩展映射，持久化存储
+- `extract_terms_via_llm()`：DeepSeek LLM 并行提取（5并发，13batch约30秒）
+- `analyze_workorders()`：主分析流程，交互确认新术语
+**API配置**：从 `~/.openclaw/openclaw.json` 自动读取 DeepSeek 配置
 
 ### md2docx.py
 **用途**：Markdown 转 Word 文档（独立工具）
@@ -150,8 +166,8 @@ product-expert (场景3)
 
 ## 已知约束
 
-1. **Step3 LLM语义凝练**：目前 Step3（用了没）仍用关键词匹配，LITE模式；完整LLM凝练待实现（需解决API调用效率问题）
-2. **PDF流程图OCR**：Windows不支持PaddlePaddle，无法安装PaddleOCR；当前用文件名降级匹配；**待后续优化**：Linux环境部署OCR或接入云端OCR API
-3. **合同数据粒度**：合同xlsx中的产品名为"甄云SRM V3.0"（产品级），无法精确到模块；实际以客户主数据"购买模块"列为主
-4. **DOC读取**：Win32COM方式，约6个文件需要逐个处理，较大文件可能截断
-5. **时间筛选**：仅支持"提单时间"列的去年自然年筛选，格式支持 yyyy-mm-dd、yyyy/mm/dd
+1. **PDF流程图OCR**：Windows不支持PaddlePaddle，无法安装PaddleOCR；当前用文件名降级匹配；**待后续优化**：Linux环境部署OCR或接入云端OCR API
+2. **合同数据粒度**：合同xlsx中的产品名为"甄云SRM V3.0"（产品级），无法精确到模块；实际以客户主数据"购买模块"列为主
+3. **DOC读取**：Win32COM方式，约6个文件需要逐个处理，较大文件可能截断
+4. **时间筛选**：仅支持"提单时间"列的去年自然年筛选，格式支持 yyyy-mm-dd、yyyy/mm/dd
+5. **术语映射系统**：term_feedback.json 会随分析自动积累新术语；待确认术语通过交互完成映射闭环

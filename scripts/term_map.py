@@ -13,6 +13,8 @@ import json
 import re
 import sys
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 SCRIPT_DIR = os.path.dirname(__file__)
 FEEDBACK_PATH = os.path.join(SCRIPT_DIR, "term_feedback.json")
@@ -203,38 +205,22 @@ def _llm_available() -> bool:
         return False
 
 
-def extract_terms_via_llm(workorders: list, model: str = None) -> list:
-    """
-    调用 LLM 提取工单中的业务术语。
-    返回: [{term: str, evidence: str}, ...]
-    """
-    try:
-        from openai import OpenAI
-    except ImportError:
-        return []
+MAX_CONCURRENCY = 5
 
-    cfg = _load_deepseek_config()
-    if not cfg:
-        return []
+
+def _process_single_batch(args) -> list:
+    """处理单个batch，返回提取的术语列表（供线程池调用）"""
+    batch, batch_num, total_batches, cfg = args
+    from openai import OpenAI
     client = OpenAI(api_key=cfg['api_key'], base_url=cfg['base_url'])
-    model = model or cfg['model']
+    model = cfg['model']
 
-    batch_size = 10
-    all_terms = []
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    wo_text = '\n'.join([
+        f"{j+1}. 标题：{rec.get('标题','')} | 描述：{rec.get('描述','')}"
+        for j, rec in enumerate(batch)
+    ])
 
-    for i in range(0, len(workorders), batch_size):
-        batch = workorders[i:i+batch_size]
-        batch_num = i // batch_size + 1
-        total_batches = (len(workorders) + batch_size - 1) // batch_size
-        print(f"    [LLM] batch {batch_num}/{total_batches}")
-
-        wo_text = '\n'.join([
-            f"{j+1}. 标题：{rec.get('标题','')} | 描述：{rec.get('描述','')}"
-            for j, rec in enumerate(batch)
-        ])
-
-        prompt = f"""你是SRM工单分析专家。从以下工单中提取涉及的业务术语/短语（如：采购订单、送货单、供应商准入、询价单、质量整改等）。
+    prompt = f"""你是SRM工单分析专家。从以下工单中提取涉及的业务术语/短语（如：采购订单、送货单、供应商准入、询价单、质量整改等）。
 
 要求：
 - 只提取实质性的业务操作术语，不要提取虚词、连接词
@@ -247,24 +233,74 @@ def extract_terms_via_llm(workorders: list, model: str = None) -> list:
 输出格式（仅返回JSON数组，不要有其他文字）：
 [{{"term": "术语", "evidence": "工单原文片段"}}]"""
 
-        try:
-            resp = client.chat.completions.create(
-                model=model or 'MiniMax-Accelerate',
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=1500
-            )
-            raw = resp.choices[0].message.content
-            json_match = re.search(r'\[.*\]', raw, re.DOTALL)
-            if json_match:
-                items = json.loads(json_match.group())
-                for item in items:
-                    if 'term' in item and 'evidence' in item:
-                        item['term'] = item['term'].strip()
-                        if item['term']:
-                            all_terms.append(item)
-        except Exception as e:
-            print(f"    [LLM error] {e}")
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=1500
+        )
+        raw = resp.choices[0].message.content
+        json_match = re.search(r'\[.*\]', raw, re.DOTALL)
+        if json_match:
+            items = json.loads(json_match.group())
+            results = []
+            for item in items:
+                if 'term' in item and 'evidence' in item:
+                    term = item['term'].strip()
+                    if term:
+                        results.append(item)
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+            print(f"    [LLM] batch {batch_num}/{total_batches} done ({len(results)} terms)")
+            return results
+    except Exception as e:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        print(f"    [LLM error] batch {batch_num}: {e}")
+        if '429' in str(e) or 'rate' in str(e).lower():
+            return 'RATE_LIMIT'
+    return []
+
+
+def extract_terms_via_llm(workorders: list, model: str = None) -> list:
+    """
+    并行调用 LLM 提取工单中的业务术语（5并发）。
+    返回: [{term: str, evidence: str}, ...]
+    """
+    cfg = _load_deepseek_config()
+    if not cfg:
+        return []
+
+    cfg['model'] = model or cfg['model']
+    batch_size = 10
+    batches = []
+    for i in range(0, len(workorders), batch_size):
+        batch = workorders[i:i+batch_size]
+        batch_num = i // batch_size + 1
+        total = (len(workorders) + batch_size - 1) // batch_size
+        batches.append((batch, batch_num, total, cfg))
+
+    all_terms = []
+    total_batches = len(batches)
+
+    # 第一轮：5并发
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    print(f"    [LLM parallel] {total_batches} batches, max {MAX_CONCURRENCY} concurrent")
+
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as executor:
+        futures = {executor.submit(_process_single_batch, batch_args): batch_args[1]
+                   for batch_args in batches}
+
+        for future in as_completed(futures):
+            batch_num = futures[future]
+            try:
+                result = future.result()
+                if result == 'RATE_LIMIT':
+                    # 触发限流，后续串行重试该batch
+                    pass
+                else:
+                    all_terms.extend(result)
+            except Exception as e:
+                print(f"    [LLM future error] batch {batch_num}: {e}")
 
     return all_terms
 

@@ -226,7 +226,7 @@ def step1_bought_modules(client_dir: str) -> dict:
 # -----------------------------------------
 
 def extract_doc_text(fp: str) -> str:
-    """读取DOC/DOCX正文"""
+    """读取DOC/DOCX正文（段落 + 表格内容）"""
     text_parts = []
     word, doc = None, None
     pythoncom.CoInitialize()
@@ -235,10 +235,19 @@ def extract_doc_text(fp: str) -> str:
         word.Visible = False
         word.DisplayAlerts = False
         doc = word.Documents.Open(os.path.abspath(fp), ReadOnly=True, ConfirmConversions=False)
+        # 读段落
         for para in doc.Paragraphs:
             t = para.Range.Text.strip()
             if t and len(t) > 1:
                 text_parts.append(t)
+        # 读表格（诺斯贝尔DOC的操作内容在表格里）
+        if doc.Tables.Count > 0:
+            for tbl in doc.Tables:
+                for row in tbl.Rows:
+                    for cell in row.Cells:
+                        t = cell.Range.Text.strip()
+                        if t and len(t) > 1:
+                            text_parts.append(t)
     except Exception as e:
         text_parts.append(f"[DOC错误: {e}]")
     finally:
@@ -317,10 +326,22 @@ def step2_implemented_modules(client_dir: str) -> dict:
             for kw in kws:
                 if norm(kw) in text_norm:
                     hit_feats.append(kw)
+            # 兜底：如果精确关键词全没匹配，用模块名单字短词匹配
+            if not hit_feats and len(mod_name) >= 3:
+                short_kws = [c for c in ['商城', '采购', '寻源', '询价', '供应商',
+                                          '协同', '目录', '会员', '预算', '合同',
+                                          '资质', '绩效', '招标', '投标', '竞价',
+                                          '结算', '付款', '质量', '库存', '移动']
+                           if c in mod_name]
+                for kw in short_kws:
+                    if norm(kw) in text_norm:
+                        hit_feats.append(f'[短词]{kw}')
             if hit_feats:
                 impl[mod_name]['files'].add(fn)
                 for feat in hit_feats:
-                    if feat in mod_info['features']:
+                    # 精确关键词: 必须在 features 里才算implemented
+                    # 短词标记: 不在 features 里，但也记录（说明有相关蓝图）
+                    if feat.startswith('[短词]') or feat in mod_info['features']:
                         impl[mod_name]['implemented'].add(feat)
     
     # 汇总输出

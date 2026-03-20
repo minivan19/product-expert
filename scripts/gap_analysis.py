@@ -587,6 +587,91 @@ def _format_qdrant_results(results: list) -> list:
     return formatted
 
 
+def _summarize_qdrant(qdrant_raw: list, mods: list, client_name: str) -> list:
+    """
+    对Qdrant原始结果去重 + LLM总结，输出标准化结构。
+    输出每条：{module, feature, usage, value}
+    """
+    if not qdrant_raw:
+        return []
+
+    # --- 去重：长文本Exact dedup -----------------------------------------
+    seen_texts = set()
+    deduped = []
+    for item in qdrant_raw:
+        text = item.get('text', '')
+        if len(text) > 50:
+            key = text[:80]
+            if key not in seen_texts:
+                seen_texts.add(key)
+                deduped.append(item)
+        else:
+            deduped.append(item)  # 短文本（路径节点）直接保留
+
+    # --- 截断总量上限，避免单次prompt过长 ---------------------------
+    MAX_ITEMS = 30
+    deduped = deduped[:MAX_ITEMS]
+
+    # --- 构建LLM batch summarization prompt ----------------------------
+    items_text = []
+    for i, item in enumerate(deduped, 1):
+        items_text.append(
+            f"[{i}] 模块:{item['module']} | 文本:{item['text'][:200]}"
+        )
+    items_block = '\n'.join(items_text)
+
+    mod_list = ' / '.join(mods) if mods else '未知'
+
+    prompt = f"""你是SRM产品功能知识库管理员。客户「{client_name}」的模块：{mod_list}。
+
+参考以下从产品知识库检索到的内容，为每一条生成标准化推荐摘要：
+
+{items_block}
+
+要求：
+- 每条输出4个字段：功能名称（从文本中抽取，不超过15字）、功能用途（≤20字）、业务价值（≤20字）
+- 功能名称要具体，不能模糊（如"订单管理"而不是"功能模块"）
+- 同一功能的重复条目只保留1条
+- 不要编造信息，基于原文推理
+
+输出格式（纯JSON数组，每条4个字段）：
+[
+  {{"feature": "xxx", "usage": "xxx", "value": "xxx"}},
+  ...
+]
+只输出JSON，不要其他文字。"""
+
+    raw = call_llm([{"role": "user", "content": prompt}])
+
+    # --- 解析JSON -------------------------------------------------------
+    try:
+        import json, re
+        # 尝试直接解析
+        try:
+            data = json.loads(raw)
+        except Exception:
+            # 尝试从 ```json ... ``` 中提取
+            m = re.search(r'\[.*\]', raw, re.DOTALL)
+            if m:
+                data = json.loads(m.group(0))
+            else:
+                data = []
+    except Exception:
+        data = []
+
+    # --- 组装结果，附加module信息 ----------------------------------------
+    results = []
+    for item in data:
+        if isinstance(item, dict) and item.get('feature'):
+            results.append({
+                'module': item.get('module', ''),
+                'feature': item.get('feature', ''),
+                'usage': item.get('usage', ''),
+                'value': item.get('value', ''),
+            })
+    return results
+
+
 def generate_recommendations(grid: dict, used: dict, client_name: str,
                               impl: dict = None, hierarchy: list = None,
                               client_dir: str = None,
@@ -601,7 +686,7 @@ def generate_recommendations(grid: dict, used: dict, client_name: str,
     labels = {
         'A': '深度应用模块',
         'B': '激活不足模块',
-        'C': '买了未实施模块',
+        'C': '疑似未用模块',
         'D': '潜在需求模块',
     }
     results = {}
@@ -712,34 +797,39 @@ def generate_recommendations(grid: dict, used: dict, client_name: str,
                 qdrant.extend(_format_qdrant_results(qdrant_mod))
 
         elif cls == 'C':
-            # ===== C类：买了未实施 → 蓝图分析 → 预测痛点 → Qdrant精准匹配 =====
+            # ===== C类：疑似未用 → 直接推荐模块内未实施功能 =====
             for mod in mods:
+                # 找出该模块买了但未实施的功能（来自Step2的覆盖率数据）
+                impl_mod = (impl or {}).get(mod, {})
+                total_feats = len(_get_module_features(hierarchy, mod))
+                impl_feats = impl_mod.get('implemented', set())  # 已实施的功能名
+                all_feats = set(_get_module_features(hierarchy, mod))
+                unimplemented = [f for f in all_feats if f not in impl_feats]
+
+                # 无可用功能清单时，用蓝图文本辅助
                 blueprint_text = _read_blueprint_for_module(impl or {}, mod, client_dir or "")
+                feats_str = '、'.join(unimplemented) if unimplemented else '（未知具体功能）'
 
-                prompt = f"""你是SRM客户成功顾问。客户「{client_name}」购买了「{mod}」模块，但完全没有使用记录。
+                prompt = f"""你是SRM客户成功顾问。客户「{client_name}」购买了「{mod}」模块，但几乎没用过。
 
-请分三步分析：
+该模块已知的未实施功能：{feats_str}
+{'客户蓝图摘要：' + blueprint_text[:500] if blueprint_text else '（无蓝图文件）'}
 
-第一步 - 蓝图设计初衷：
-根据以下蓝图内容，判断当初实施这个模块时，设计者期望解决什么业务问题？
-蓝图内容：{blueprint_text[:1000] if blueprint_text else '（无蓝图文件）'}
-
-第二步 - 预测痛点：
-结合你的SRM行业经验，预测该模块"买而不用"最可能的3个原因（例如：上线后流程不适应、供应商配合度低、缺少专人维护、功能复杂业务人员不会用等）。
-
-第三步 - 精准推荐：
-针对预测的最可能痛点，推荐2个最直接对应的产品具体功能（要有功能名称，不能只说"加强培训"这类通用话术）。
+请完成：
+1. 分析：该模块"买而未用"最可能的原因（≤40字）
+2. 针对未实施功能，选出2个优先推荐的功能，给出激活建议（15字以内，含具体功能名）
 
 回复格式：
-【设计初衷】：...
-【预测痛点】：1. ... 2. ... 3. ...
-【精准推荐】：功能1（对应痛点X） | 功能2（对应痛点Y）
+分析：...
+推荐1：[功能名] → [激活建议]
+推荐2：[功能名] → [激活建议]
 """
                 raw_mod = call_llm([{"role": "user", "content": prompt}])
                 raw += f"【{mod}】\n{raw_mod}\n\n"
 
-                # Qdrant：基于痛点精准搜索
-                qdrant_mod = _qdrant_search(f"{mod} {blueprint_text[:200] if blueprint_text else ''}", top_k=6)
+                # Qdrant：搜未实施功能的产品知识
+                search_kw = ' '.join(unimplemented[:4]) if unimplemented else mod
+                qdrant_mod = _qdrant_search(f"{mod} {search_kw}", top_k=6)
                 qdrant.extend(_format_qdrant_results(qdrant_mod))
 
         elif cls == 'D':
@@ -761,7 +851,7 @@ def generate_recommendations(grid: dict, used: dict, client_name: str,
         results[cls] = {
             'raw': raw.strip(),
             'mods': grid[cls],
-            'qdrant': qdrant[:8]  # 最多8条去重
+            'qdrant': _summarize_qdrant(qdrant, grid[cls], client_name)
         }
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
         print(f"    [推荐] {cls}类: {len(qdrant)}条Qdrant结果")
@@ -819,14 +909,14 @@ def main(client_name: str, year: int = 2025, output_path: str = None):
     # 组装报告
     report = build_report(client_name, bought, impl, used, grid, recs)
 
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     if output_path:
         try:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(report)
             print(f"\n报告已保存: {output_path}")
         except Exception as e:
-            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+            import traceback
+            traceback.print_exc()
             print(f"\n报告保存失败: {e}")
     else:
         print(report)
@@ -845,7 +935,7 @@ def build_report(client_name, bought, impl, used, grid, recs) -> str:
         "\n## 执行摘要\n",
     ]
 
-    for cls, label in [('A','深度应用'), ('B','激活不足'), ('C','买了未实施'), ('D','潜在需求'), ('E','空白机会')]:
+    for cls, label in [('A','深度应用'), ('B','激活不足'), ('C','疑似未用'), ('D','潜在需求'), ('E','空白机会')]:
         if grid.get(cls):
             lines.append(f"- **[{cls}] {label}**: {', '.join(grid[cls])}")
 
@@ -864,10 +954,17 @@ def build_report(client_name, bought, impl, used, grid, recs) -> str:
             lines.append(f"{raw}\n")
 
         if qdrant:
-            lines.append(f"**匹配产品功能**（知识库）：\n")
+            lines.append(f"**推荐产品功能**（知识库）：\n")
             for item in qdrant[:5]:
-                score_bar = '█' * int(item['score'] * 10)
-                lines.append(f"- [{item['module']}] {item['text'][:100]}")
+                feat = item.get('feature', '')
+                usage = item.get('usage', '')
+                value = item.get('value', '')
+                if feat:
+                    lines.append(f"- **{feat}**")
+                    if usage:
+                        lines.append(f"  - 怎么用：{usage}")
+                    if value:
+                        lines.append(f"  - 业务价值：{value}")
             lines.append("")
 
     return '\n'.join(lines)

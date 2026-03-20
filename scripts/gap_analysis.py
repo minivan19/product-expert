@@ -359,7 +359,8 @@ def step2_implemented_modules(client_dir: str) -> dict:
 # -----------------------------------------
 
 def _read_workorder_batch(fp, year):
-    """读取单个工单xlsx"""
+    """读取单个工单xlsx，仅保留指定年份的记录"""
+    from datetime import datetime
     records = []
     try:
         wb = openpyxl.load_workbook(fp, data_only=True)
@@ -372,9 +373,18 @@ def _read_workorder_batch(fp, year):
         tc = col_map.get('标题', col_map.get('工单号', 1))
         dc = col_map.get('描述', col_map.get('详细', col_map.get('问题描述', 9)))
         mod_i = col_map.get('模块', 7)
+        date_i = col_map.get('创建时间', col_map.get('创建日期', None))
         for row in ws.iter_rows(min_row=2, values_only=True):
             if not row or not any(row):
                 continue
+            # 年份过滤
+            if date_i is not None and row[date_i]:
+                try:
+                    dt = row[date_i]
+                    if hasattr(dt, 'year') and dt.year != year:
+                        continue
+                except Exception:
+                    pass
             title = str(row[tc]).strip() if row[tc] else ''
             desc = str(row[dc]).strip() if row[dc] else ''
             mod = str(row[mod_i]).strip() if row[mod_i] else ''

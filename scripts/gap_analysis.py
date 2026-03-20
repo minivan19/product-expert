@@ -932,7 +932,7 @@ def build_report(client_name, bought, impl, used, grid, recs) -> str:
     lines = [
         f"# {client_name} - 功能缺口分析与激活建议",
         f"\n**时间**: 2026-03-20",
-        "\n## 执行摘要\n",
+        "\n## 功能使用诊断\n",
     ]
 
     for cls, label in [('A','深度应用'), ('B','激活不足'), ('C','疑似未用'), ('D','潜在需求'), ('E','空白机会')]:

@@ -86,10 +86,10 @@ class MarkdownToDocxConverter:
                 self._process_table_row(line)
             # 列表处理
             elif line.strip().startswith('- ') or line.strip().startswith('* '):
-                self.doc.add_paragraph(line.strip()[2:], style='List Bullet')
+                self._add_paragraph_with_formatting(line.strip()[2:], style='List Bullet')
             elif line.strip().startswith(('1. ', '2. ', '3. ', '4. ', '5. ', '6. ', '7. ', '8. ', '9. ', '0. ')):
                 # 有序列表
-                self.doc.add_paragraph(line.strip(), style='List Number')
+                self._add_paragraph_with_formatting(line.strip(), style='List Number')
             # 引用处理
             elif line.strip().startswith('> '):
                 self.doc.add_paragraph(line.strip()[2:], style='Quote')
@@ -156,9 +156,9 @@ class MarkdownToDocxConverter:
                         # 去掉星号再写入
                         row.cells[i].text = cell_text.replace('**', '')
     
-    def _add_paragraph_with_formatting(self, text: str):
+    def _add_paragraph_with_formatting(self, text: str, style: str = None):
         """添加段落并处理基本格式"""
-        paragraph = self.doc.add_paragraph()
+        paragraph = self.doc.add_paragraph(style=style) if style else self.doc.add_paragraph()
 
         # 用 findall 精确提取 bold 内容，避免正则 split 的歧义问题
         bold_pattern = re.compile(r'\*\*([^*]+)\*\*')

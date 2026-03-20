@@ -616,13 +616,15 @@ def generate_recommendations(grid: dict, used: dict, client_name: str,
         qdrant = []
 
         if cls == 'A':
-            # ===== A类：深度应用 → 找同模块内未深度使用的亮点功能 =====
+            # 同模块→高级模块映射（基于hierarchy的suite分组）
+            MODULE_UPGRADE = {
+                '基础供应商管理': '高级供应商管理',
+                '基础采购协同': '高级采购协同',
+            }
             for mod in mods:
                 all_feats = _get_module_features(hierarchy, mod)
                 used_feats = (feature_counts or {}).get(mod, {})  # {feature: count}
-                # 找出用了但频次不高的功能 + 买了但完全没用的功能
-                underused = []
-                unused_in_mod = []
+                underused, unused_in_mod = [], []
                 for feat, cnt in used_feats.items():
                     if 1 <= cnt <= 5:
                         underused.append((feat, cnt))
@@ -630,32 +632,50 @@ def generate_recommendations(grid: dict, used: dict, client_name: str,
                     if feat not in used_feats:
                         unused_in_mod.append(feat)
 
-                if not underused and not unused_in_mod:
-                    continue
-
+                upgrade_target = MODULE_UPGRADE.get(mod, None)
+                upgrade_feats = _get_module_features(hierarchy, upgrade_target) if upgrade_target else []
                 used_summary = {f: c for f, c in used_feats.items() if c > 0}
+
                 prompt = f"""你是SRM客户成功顾问。客户「{client_name}」的「{mod}」模块已深度应用（高频使用）。
 
 已深度使用的功能：{used_summary}
 同模块内未充分使用的功能：{underused}
 同模块内完全未使用的功能：{unused_in_mod}
+{('该模块有升级版本【' + upgrade_target + '】，其核心功能：' + str(upgrade_feats)) if upgrade_target else '（无直接升级版本）'}
 
-请完成：
-1. 简要分析：为什么客户在这些功能上用得浅或没用？
+请从以下两个维度给出推荐：
+
+【维度一：同模块深挖】
+在「{mod}」模块内部：
+1. 分析：为什么客户在这些功能上用得浅或没用？
 2. 选出2个最有激活价值的"亮点功能"（优先从未使用中选择，其次选低频使用的）
 3. 对每个亮点功能，给出1条具体的激活建议（15字以内，要包含具体功能名）
 
+【维度二：跨模块升级】（如果有升级版本）
+如果「{mod}」有对应的「{upgrade_target or '更高级版本'}」，分析：
+1. 该客户是否适合升级？（基于其当前使用深度）
+2. 升级后最值得优先启用的2个高级功能是什么？
+3. 给出一条升级路径建议（15字以内）
+
 回复格式：
-分析：[50字以内分析]
+【同模块深挖】
+分析：...
 亮点1：[功能名] → [激活建议]
 亮点2：[功能名] → [激活建议]
+【跨模块升级】
+{"分析：... | 升级功能1：[功能名] → [升级建议] | 升级功能2：[功能名] → [升级建议]" if upgrade_target else "（无升级版本，此维度略过）"}
 """
                 raw_mod = call_llm([{"role": "user", "content": prompt}])
                 raw += f"【{mod}】\n{raw_mod}\n\n"
 
-                # Qdrant：搜索亮点功能的具体产品功能
-                qdrant_mod = _qdrant_search(f"{mod} {' '.join(unused_in_mod[:3])} {''.join([f for f,_ in underused[:2]])}", top_k=5)
-                qdrant.extend(_format_qdrant_results(qdrant_mod))
+                # Qdrant：两个方向都搜
+                same_query = f"{mod} {' '.join(unused_in_mod[:3])}"
+                qdrant_same = _qdrant_search(same_query, top_k=4)
+                qdrant.extend(_format_qdrant_results(qdrant_same))
+                if upgrade_target:
+                    upgrade_query = f"{upgrade_target} {''.join(upgrade_feats[:3])}"
+                    qdrant_up = _qdrant_search(upgrade_query, top_k=4)
+                    qdrant.extend(_format_qdrant_results(qdrant_up))
 
         elif cls == 'B':
             # ===== B类：激活不足 → 同功能找更多使用场景 =====

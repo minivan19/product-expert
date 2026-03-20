@@ -17,9 +17,15 @@ import win32com.client
 import pythoncom
 import zipfile
 import fitz
+import unicodedata
 
 CLIENT_DATA_ROOT = r"C:\Users\mingh\client-data\raw\客户档案"
 HIERARCHY_PATH = os.path.join(os.path.dirname(__file__), "..", "references", "product_modules_hierarchy.json")
+
+# 延迟导入 term_map（避免循环依赖）
+def _get_term_map():
+    import term_map as tm
+    return tm
 
 
 # -----------------------------------------
@@ -374,52 +380,28 @@ def read_workorders(client_dir: str, year: int) -> list:
 
 def step3_used_modules(client_dir: str, year: int = 2025) -> dict:
     """
-    Step 3: 工单中使用了哪些模块？（LLM凝练）
-    目前先用关键词匹配（LITE模式），后续切LLM
+    Step 3: 工单中使用了哪些模块？（术语映射+LLM提取）
     返回: {产品模块名: count}
     """
-    hierarchy = load_hierarchy()
-    mod_kw_map = build_module_kw_map(hierarchy)
-    
-    # 工单标签 → 产品模块 映射（从旧代码继承，已验证有效）
-    WO_LABEL_MAP = {
-        '订单/物流': '基础采购协同',
-        '寻源（询价/招标）': '基础采购寻源',
-        '系统基础/报表/应用商店': '基础平台服务',
-        '合作伙伴': None,  # 无法映射
-        '结算/质量': '质量管理',
-        '协议（合同）/价格库': '合同管理',
-        '需求（采购申请）': '基础采购寻源',
-        '审批（工作流）': '基础平台服务',
-    }
-    
+    tm = _get_term_map()
     records = read_workorders(client_dir, year)
     print(f"  [Step3 用了没] 工单记录: {len(records)}条")
-    
+
+    # 调用 term_map 做分析（interactive=False，静默模式）
+    feature_counts = tm.analyze_workorders(records, interactive=False)
+
+    # 聚合到模块级别（用于3×2分类）
+    hierarchy = load_hierarchy()
+    mod_kw_map = build_module_kw_map(hierarchy)
     usage = {mod: 0 for mod in mod_kw_map}
-    
-    for rec in records:
-        rec_text = norm(rec.get('标题', '') + ' ' + rec.get('描述', ''))
-        mod_label = rec.get('模块', '')
-        
-        # 标签映射
-        mapped_mod = WO_LABEL_MAP.get(mod_label, None)
-        if mapped_mod and mapped_mod in usage:
-            usage[mapped_mod] += 1
-            continue
-        
-        # 关键词内容匹配
-        for mod_name, mod_info in mod_kw_map.items():
-            kws = mod_info['all_keywords']
-            for kw in kws:
-                if len(kw) >= 2 and norm(kw) in rec_text:
-                    usage[mod_name] += 1
-                    break
-    
+    for module, features in feature_counts.items():
+        if module in usage:
+            usage[module] = sum(features.values())
+
     for mod, cnt in sorted(usage.items(), key=lambda x: -x[1]):
         bar = '#' * min(cnt, 20)
         print(f"    {'[Y]' if cnt > 0 else '·'} {mod}: {cnt}次 {bar}")
-    
+
     return usage
 
 

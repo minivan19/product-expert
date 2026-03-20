@@ -402,7 +402,8 @@ def step3_used_modules(client_dir: str, year: int = 2025) -> dict:
         bar = '#' * min(cnt, 20)
         print(f"    {'[Y]' if cnt > 0 else '·'} {mod}: {cnt}次 {bar}")
 
-    return usage
+    # 返回两个 dict：module_usage（模块级count） + feature_counts（功能级详情）
+    return {'module': usage, 'feature': feature_counts}
 
 
 # -----------------------------------------
@@ -504,6 +505,37 @@ def call_llm(messages: list, model: str = None) -> str:
         return f"[LLM错误: {e}]"
 
 
+def _read_blueprint_for_module(impl: dict, mod: str, client_dir: str) -> str:
+    """为C类分析读取蓝图文本：提取指定模块相关的蓝图内容"""
+    blueprint_dir = os.path.join(client_dir, '蓝图方案')
+    if not os.path.isdir(blueprint_dir):
+        return ""
+    files = impl.get(mod, {}).get('files', set())
+    if not files:
+        return ""
+    texts = []
+    for fn in files:
+        fp = os.path.join(blueprint_dir, fn)
+        if os.path.exists(fp):
+            txt = extract_blueprint(fp)
+            if txt and len(txt) > 20:
+                texts.append(f"【{fn}】\n{txt[:800]}")
+    return '\n---\n'.join(texts)
+
+
+def _get_module_features(hierarchy: list, mod_name: str) -> list:
+    """从hierarchy中获取指定模块的所有功能名"""
+    for item in hierarchy:
+        mod_raw = item['module']
+        if mod_raw[0].isdigit() and '.' in mod_raw[:3]:
+            name = mod_raw.split('.', 1)[1]
+        else:
+            name = mod_raw
+        if name == mod_name:
+            return item.get('features', [])
+    return []
+
+
 def _qdrant_search(query: str, top_k: int = 5) -> list:
     """Qdrant搜索产品功能"""
     try:
@@ -534,11 +566,16 @@ def _format_qdrant_results(results: list) -> list:
     return formatted
 
 
-def generate_recommendations(grid: dict, used: dict, client_name: str) -> dict:
+def generate_recommendations(grid: dict, used: dict, client_name: str,
+                              impl: dict = None, hierarchy: list = None,
+                              client_dir: str = None,
+                              feature_counts: dict = None) -> dict:
     """
-    为各分类生成推荐内容（增强版）：
-    1. LLM生成建议
-    2. Qdrant搜索匹配的具体产品功能
+    为各分类生成推荐内容（分层策略）：
+    A类：同模块找未深度使用的亮点功能
+    B类：同功能找更多使用场景
+    C类：蓝图分析 → 预测痛点 → Qdrant精准匹配
+    D类：基于工单内容推荐
     """
     labels = {
         'A': '深度应用模块',
@@ -546,50 +583,147 @@ def generate_recommendations(grid: dict, used: dict, client_name: str) -> dict:
         'C': '买了未实施模块',
         'D': '潜在需求模块',
     }
-
-    # 为每个分类构造建议
     results = {}
+
     for cls in 'ABCD':
         if not grid.get(cls):
             results[cls] = {}
             continue
 
         mods = grid[cls]
-        mod_list = ', '.join(mods)
-        used_detail = {}
-        for mod in mods:
-            if mod in used:
-                used_detail[mod] = used[mod]
+        raw = ""
+        qdrant = []
 
-        prompt = f"""你是SRM客户成功顾问。为{client_name}的以下模块生成激活/推进建议。
+        if cls == 'A':
+            # ===== A类：深度应用 → 找同模块内未深度使用的亮点功能 =====
+            for mod in mods:
+                all_feats = _get_module_features(hierarchy, mod)
+                used_feats = (feature_counts or {}).get(mod, {})  # {feature: count}
+                # 找出用了但频次不高的功能 + 买了但完全没用的功能
+                underused = []
+                unused_in_mod = []
+                for feat, cnt in used_feats.items():
+                    if 1 <= cnt <= 5:
+                        underused.append((feat, cnt))
+                for feat in all_feats:
+                    if feat not in used_feats:
+                        unused_in_mod.append(feat)
 
-{labels[cls]}：{mod_list}
-工单命中次数：{used_detail}
+                if not underused and not unused_in_mod:
+                    continue
 
-要求：
-1. 分析客户使用现状（为什么深度应用/激活不足/未实施）
-2. 给出2-3条具体建议（可操作）
-3. 每条建议控制在30字以内
-4. 建议尽量包含具体功能名称（如：VMI预测协同、供应商绩效管理、合同在线签署）
+                used_summary = {f: c for f, c in used_feats.items() if c > 0}
+                prompt = f"""你是SRM客户成功顾问。客户「{client_name}」的「{mod}」模块已深度应用（高频使用）。
+
+已深度使用的功能：{used_summary}
+同模块内未充分使用的功能：{underused}
+同模块内完全未使用的功能：{unused_in_mod}
+
+请完成：
+1. 简要分析：为什么客户在这些功能上用得浅或没用？
+2. 选出2个最有激活价值的"亮点功能"（优先从未使用中选择，其次选低频使用的）
+3. 对每个亮点功能，给出1条具体的激活建议（15字以内，要包含具体功能名）
 
 回复格式：
-模块名：建议1 | 建议2 | 建议3
+分析：[50字以内分析]
+亮点1：[功能名] → [激活建议]
+亮点2：[功能名] → [激活建议]
 """
-        raw = call_llm([{"role": "user", "content": prompt}])
+                raw_mod = call_llm([{"role": "user", "content": prompt}])
+                raw += f"【{mod}】\n{raw_mod}\n\n"
 
-        # 提取关键词去Qdrant搜索
-        # 合并所有模块名 + LLM回复作为搜索query
-        search_query = mod_list + ' ' + raw[:200]
-        qdrant_results = _qdrant_search(search_query, top_k=8)
-        formatted_qdrant = _format_qdrant_results(qdrant_results)
+                # Qdrant：搜索亮点功能的具体产品功能
+                qdrant_mod = _qdrant_search(f"{mod} {' '.join(unused_in_mod[:3])} {''.join([f for f,_ in underused[:2]])}", top_k=5)
+                qdrant.extend(_format_qdrant_results(qdrant_mod))
+
+        elif cls == 'B':
+            # ===== B类：激活不足 → 同功能找更多使用场景 =====
+            for mod in mods:
+                used_feats = (feature_counts or {}).get(mod, {})  # {feature: count}
+                if not used_feats:
+                    continue
+
+                # 找出该模块下所有已使用的功能及其频次
+                active_feats = [(f, c) for f, c in used_feats.items() if c > 0]
+                all_feats = _get_module_features(hierarchy, mod)
+                other_feats = [f for f in all_feats if f not in used_feats]
+
+                prompt = f"""你是SRM客户成功顾问。客户「{client_name}」的「{mod}」模块使用频率较低。
+
+已使用的功能及频次：{dict(active_feats)}
+同模块其他可用功能：{other_feats}
+
+请完成：
+1. 分析：为什么「{mod}」整体使用频率不高？可能原因有哪些？
+2. 针对已使用的每个功能，给出1条"深度激活"建议（15字以内，要包含该功能的更高级用法或关联场景）
+3. 针对同模块其他功能，选取2个最有价值的，给出激活路径建议（15字以内）
+
+回复格式：
+分析：[50字以内分析]
+深度激活：[功能1] → [更高级用法] | [功能2] → [更高级用法]
+模块扩展：[功能X] → [激活路径] | [功能Y] → [激活路径]
+"""
+                raw_mod = call_llm([{"role": "user", "content": prompt}])
+                raw += f"【{mod}】\n{raw_mod}\n\n"
+
+                # Qdrant：搜索该模块高级用法
+                qdrant_mod = _qdrant_search(f"{mod} 高级用法 {''.join([f for f,_ in active_feats[:2]])}", top_k=5)
+                qdrant.extend(_format_qdrant_results(qdrant_mod))
+
+        elif cls == 'C':
+            # ===== C类：买了未实施 → 蓝图分析 → 预测痛点 → Qdrant精准匹配 =====
+            for mod in mods:
+                blueprint_text = _read_blueprint_for_module(impl or {}, mod, client_dir or "")
+
+                prompt = f"""你是SRM客户成功顾问。客户「{client_name}」购买了「{mod}」模块，但完全没有使用记录。
+
+请分三步分析：
+
+第一步 - 蓝图设计初衷：
+根据以下蓝图内容，判断当初实施这个模块时，设计者期望解决什么业务问题？
+蓝图内容：{blueprint_text[:1000] if blueprint_text else '（无蓝图文件）'}
+
+第二步 - 预测痛点：
+结合你的SRM行业经验，预测该模块"买而不用"最可能的3个原因（例如：上线后流程不适应、供应商配合度低、缺少专人维护、功能复杂业务人员不会用等）。
+
+第三步 - 精准推荐：
+针对预测的最可能痛点，推荐2个最直接对应的产品具体功能（要有功能名称，不能只说"加强培训"这类通用话术）。
+
+回复格式：
+【设计初衷】：...
+【预测痛点】：1. ... 2. ... 3. ...
+【精准推荐】：功能1（对应痛点X） | 功能2（对应痛点Y）
+"""
+                raw_mod = call_llm([{"role": "user", "content": prompt}])
+                raw += f"【{mod}】\n{raw_mod}\n\n"
+
+                # Qdrant：基于痛点精准搜索
+                qdrant_mod = _qdrant_search(f"{mod} {blueprint_text[:200] if blueprint_text else ''}", top_k=6)
+                qdrant.extend(_format_qdrant_results(qdrant_mod))
+
+        elif cls == 'D':
+            # ===== D类：潜在需求 → 基于工单内容推荐 =====
+            mod_list = ', '.join(mods)
+            prompt = f"""你是SRM客户成功顾问。客户「{client_name}」未购买以下模块，但运维工单中出现了相关术语：{mod_list}
+
+请基于SRM行业经验，给出2-3个模块的优先级推荐（说明为什么这些模块值得购买）。
+
+回复格式：
+模块1（优先级高）：推荐理由
+模块2（优先级中）：推荐理由
+"""
+            raw = call_llm([{"role": "user", "content": prompt}])
+            for mod in mods:
+                qdrant_mod = _qdrant_search(f"{mod} 核心功能 适用场景", top_k=4)
+                qdrant.extend(_format_qdrant_results(qdrant_mod))
 
         results[cls] = {
-            'raw': raw,
+            'raw': raw.strip(),
             'mods': grid[cls],
-            'qdrant': formatted_qdrant
+            'qdrant': qdrant[:8]  # 最多8条去重
         }
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-        print(f"    [推荐] {cls}类: {len(formatted_qdrant)}条Qdrant结果")
+        print(f"    [推荐] {cls}类: {len(qdrant)}条Qdrant结果")
 
     return results
 
@@ -628,7 +762,9 @@ def main(client_name: str, year: int = 2025, output_path: str = None):
     
     # Step 3: 用了没
     print(f"\n[Step3] 工单中使用情况？")
-    used = step3_used_modules(client_dir, year)
+    used_data = step3_used_modules(client_dir, year)
+    used = used_data['module']          # {module: count}，用于3×2分类
+    feature_counts = used_data['feature']  # {module: {feature: count}}，用于推荐详情
     
     # 3×2 分类
     print(f"\n[综合] 3×2网格分类")
@@ -636,7 +772,8 @@ def main(client_name: str, year: int = 2025, output_path: str = None):
     
     # 生成推荐
     print(f"\n[推荐] 生成激活建议...")
-    recs = generate_recommendations(grid, used, client_name)
+    recs = generate_recommendations(grid, used, client_name, impl, hierarchy,
+                                   client_dir, feature_counts)
     
     # 组装报告
     report = build_report(client_name, bought, impl, used, grid, recs)

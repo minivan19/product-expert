@@ -162,19 +162,39 @@ def reject_term(term: str):
 # LLM 提取术语
 # ─────────────────────────────────────────
 
+def _load_deepseek_config() -> dict | None:
+    """从 openclaw.json 读取 DeepSeek API 配置"""
+    oc_path = os.path.join(os.path.expanduser('~'), '.openclaw', 'openclaw.json')
+    try:
+        with open(oc_path, encoding='utf-8') as f:
+            data = json.load(f)
+        models = data.get('models', {})
+        providers = models.get('providers', {})
+        for name, cfg in providers.items():
+            base_url = cfg.get('baseUrl', '')
+            if 'deepseek' in base_url.lower():
+                return {
+                    'api_key': cfg.get('apiKey', ''),
+                    'base_url': base_url,
+                    'model': cfg.get('models', [{}])[0].get('id', 'deepseek-chat') if cfg.get('models') else 'deepseek-chat'
+                }
+    except Exception:
+        pass
+    return None
+
+
 def _llm_available() -> bool:
+    cfg = _load_deepseek_config()
+    if not cfg:
+        return False
     try:
         from openai import OpenAI
     except ImportError:
         return False
-    api_key = os.environ.get('OPENAI_API_KEY', '')
-    if not api_key:
-        return False
     try:
-        client = OpenAI(api_key=api_key,
-                        base_url=os.environ.get('OPENAI_API_BASE', 'https://api.minimaxi.com/v1'))
+        client = OpenAI(api_key=cfg['api_key'], base_url=cfg['base_url'])
         resp = client.chat.completions.create(
-            model='MiniMax-Accelerate',
+            model=cfg['model'],
             messages=[{"role": "user", "content": "hi"}],
             max_tokens=5
         )
@@ -193,9 +213,11 @@ def extract_terms_via_llm(workorders: list, model: str = None) -> list:
     except ImportError:
         return []
 
-    api_key = os.environ.get('OPENAI_API_KEY', '')
-    api_base = os.environ.get('OPENAI_API_BASE', 'https://api.minimaxi.com/v1')
-    client = OpenAI(api_key=api_key, base_url=api_base)
+    cfg = _load_deepseek_config()
+    if not cfg:
+        return []
+    client = OpenAI(api_key=cfg['api_key'], base_url=cfg['base_url'])
+    model = model or cfg['model']
 
     batch_size = 10
     all_terms = []

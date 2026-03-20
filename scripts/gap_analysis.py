@@ -455,18 +455,46 @@ def classify_3x2(bought: dict, implemented: dict, used: dict, hierarchy: list) -
 # -----------------------------------------
 
 def call_llm(messages: list, model: str = None) -> str:
-    """调用LLM接口"""
+    """调用LLM接口（优先DeepSeek，fallback MiniMax）"""
     try:
         from openai import OpenAI
     except ImportError:
-        print("    [WARN] openai not installed, skipping LLM call")
         return "[LLM未安装]"
-    
-    client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY', ''), 
-                     base_url=os.environ.get('OPENAI_API_BASE', 'https://api.minimaxi.com/v1'))
+
+    # 优先用 DeepSeek（从openclaw.json读取）
+    deepseek_cfg = None
+    try:
+        import json
+        oc_path = os.path.join(os.path.expanduser('~'), '.openclaw', 'openclaw.json')
+        with open(oc_path, encoding='utf-8') as f:
+            data = json.load(f)
+        providers = data.get('models', {}).get('providers', {})
+        for name, cfg in providers.items():
+            if 'deepseek' in name.lower():
+                deepseek_cfg = cfg
+                break
+    except Exception:
+        pass
+
+    if deepseek_cfg:
+        client = OpenAI(
+            api_key=deepseek_cfg.get('apiKey', ''),
+            base_url=deepseek_cfg.get('baseUrl', '')
+        )
+        model_id = model
+        if not model_id:
+            models = deepseek_cfg.get('models', [])
+            model_id = models[0].get('id', 'deepseek-chat') if models else 'deepseek-chat'
+    else:
+        client = OpenAI(
+            api_key=os.environ.get('OPENAI_API_KEY', ''),
+            base_url=os.environ.get('OPENAI_API_BASE', 'https://api.minimaxi.com/v1')
+        )
+        model_id = model or 'MiniMax-Accelerate'
+
     try:
         resp = client.chat.completions.create(
-            model=model or 'MiniMax-Accelerate',
+            model=model_id,
             messages=messages,
             temperature=0.7,
             max_tokens=2000
@@ -476,32 +504,93 @@ def call_llm(messages: list, model: str = None) -> str:
         return f"[LLM错误: {e}]"
 
 
+def _qdrant_search(query: str, top_k: int = 5) -> list:
+    """Qdrant搜索产品功能"""
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from src.qdrant_ops import search_points
+        return search_points(query, top_k=top_k)
+    except Exception as e:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        print(f"    [Qdrant搜索失败] {e}")
+        return []
+
+
+def _format_qdrant_results(results: list) -> list:
+    """整理Qdrant结果"""
+    formatted = []
+    for payload, score in results:
+        if not payload:
+            continue
+        text = payload.get('text', '')[:300]
+        module = payload.get('module', '')
+        doc = payload.get('doc_name', '')
+        formatted.append({
+            'module': module,
+            'text': text,
+            'doc': doc,
+            'score': round(score, 3)
+        })
+    return formatted
+
+
 def generate_recommendations(grid: dict, used: dict, client_name: str) -> dict:
-    """为各分类生成推荐内容（简化版）"""
+    """
+    为各分类生成推荐内容（增强版）：
+    1. LLM生成建议
+    2. Qdrant搜索匹配的具体产品功能
+    """
     labels = {
         'A': '深度应用模块',
         'B': '激活不足模块',
         'C': '买了未实施模块',
         'D': '潜在需求模块',
     }
-    
+
+    # 为每个分类构造建议
     results = {}
     for cls in 'ABCD':
         if not grid.get(cls):
             results[cls] = {}
             continue
-        
-        mod_list = ', '.join(grid[cls])
-        prompt = f"""你是SRM客户成功顾问。为{client_name}的以下模块生成激活/推进建议：
+
+        mods = grid[cls]
+        mod_list = ', '.join(mods)
+        used_detail = {}
+        for mod in mods:
+            if mod in used:
+                used_detail[mod] = used[mod]
+
+        prompt = f"""你是SRM客户成功顾问。为{client_name}的以下模块生成激活/推进建议。
 
 {labels[cls]}：{mod_list}
+工单命中次数：{used_detail}
 
-请简洁回复，每模块一条建议（50字以内），格式：
-模块名：建议内容
+要求：
+1. 分析客户使用现状（为什么深度应用/激活不足/未实施）
+2. 给出2-3条具体建议（可操作）
+3. 每条建议控制在30字以内
+4. 建议尽量包含具体功能名称（如：VMI预测协同、供应商绩效管理、合同在线签署）
+
+回复格式：
+模块名：建议1 | 建议2 | 建议3
 """
         raw = call_llm([{"role": "user", "content": prompt}])
-        results[cls] = {'raw': raw, 'mods': grid[cls]}
-    
+
+        # 提取关键词去Qdrant搜索
+        # 合并所有模块名 + LLM回复作为搜索query
+        search_query = mod_list + ' ' + raw[:200]
+        qdrant_results = _qdrant_search(search_query, top_k=8)
+        formatted_qdrant = _format_qdrant_results(qdrant_results)
+
+        results[cls] = {
+            'raw': raw,
+            'mods': grid[cls],
+            'qdrant': formatted_qdrant
+        }
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        print(f"    [推荐] {cls}类: {len(formatted_qdrant)}条Qdrant结果")
+
     return results
 
 
@@ -566,30 +655,38 @@ def build_report(client_name, bought, impl, used, grid, recs) -> str:
     """组装Markdown报告"""
     hierarchy = load_hierarchy()
     mod_kw_map = build_module_kw_map(hierarchy)
-    
+
     lines = [
         f"# {client_name} - 功能缺口分析与激活建议",
         f"\n**时间**: 2026-03-20",
         "\n## 执行摘要\n",
     ]
-    
+
     for cls, label in [('A','深度应用'), ('B','激活不足'), ('C','买了未实施'), ('D','潜在需求'), ('E','空白机会')]:
         if grid.get(cls):
             lines.append(f"- **[{cls}] {label}**: {', '.join(grid[cls])}")
-    
+
     lines.append("\n## 详细分析\n")
-    
+
     for cls in 'ABCD':
         mods = grid.get(cls, [])
         if not mods:
             continue
+        rec_data = recs.get(cls, {})
+        raw = rec_data.get('raw', '')
+        qdrant = rec_data.get('qdrant', [])
+
         lines.append(f"### {cls}类\n")
-        raw = recs.get(cls, {}).get('raw', '')
-        if raw and not raw.startswith('['):
+        if raw and not raw.startswith('[') and not raw.startswith('['):
             lines.append(f"{raw}\n")
-        else:
-            lines.append(f"_（无详细建议）_\n")
-    
+
+        if qdrant:
+            lines.append(f"**匹配产品功能**（知识库）：\n")
+            for item in qdrant[:5]:
+                score_bar = '█' * int(item['score'] * 10)
+                lines.append(f"- [{item['module']}] {item['text'][:100]}")
+            lines.append("")
+
     return '\n'.join(lines)
 
 

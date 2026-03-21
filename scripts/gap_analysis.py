@@ -13,13 +13,17 @@ import re
 import json
 import sys
 import openpyxl
-import win32com.client
-import pythoncom
+try:
+    import win32com.client
+    import pythoncom
+    HAS_WIN32 = True
+except ImportError:
+    HAS_WIN32 = False
 import zipfile
 import fitz
 import unicodedata
 
-CLIENT_DATA_ROOT = r"C:\Users\mingh\client-data\raw\客户档案"
+CLIENT_DATA_ROOT = "/Users/limingheng/AI/client-data/raw/客户档案"
 HIERARCHY_PATH = os.path.join(os.path.dirname(__file__), "..", "references", "product_modules_hierarchy.json")
 
 # 延迟导入 term_map（避免循环依赖）
@@ -227,6 +231,8 @@ def step1_bought_modules(client_dir: str) -> dict:
 
 def extract_doc_text(fp: str) -> str:
     """读取DOC/DOCX正文（段落 + 表格内容）"""
+    if not HAS_WIN32:
+        return "[DOC跳过: macOS不支持win32com]"
     text_parts = []
     word, doc = None, None
     pythoncom.CoInitialize()
@@ -449,13 +455,20 @@ def classify_3x2(bought: dict, implemented: dict, used: dict, hierarchy: list) -
 
     A=买了+深度使用(>5)  B=买了+轻度使用(1-5)  C=买了+未使用(0)
     D=没买+工单有        E=没买+工单无
+
+    注意：基础平台服务是系统标配（每家客户都有），不归入D/E类
     """
+    # 排除基础平台服务（系统标配，不计入潜在需求）
+    EXCLUDED_MODULES = {'基础平台服务'}
+
     mod_names = [m['module'].split('.', 1)[1] if '.' in m['module'][:3] else m['module']
                  for m in hierarchy]
 
     result = {'A': [], 'B': [], 'C': [], 'D': [], 'E': []}
 
     for mod in sorted(mod_names):
+        if mod in EXCLUDED_MODULES:
+            continue
         has_bought = bought.get(mod, False)
         cnt = used.get(mod, 0)
 
@@ -884,8 +897,17 @@ def find_client_dir(client_name: str) -> str:
     raise FileNotFoundError(f"未找到客户目录: {client_name}")
 
 
+OUTPUT_ROOT = "/Users/limingheng/AI/client-data"
+
+
 def main(client_name: str, year: int = 2025, output_path: str = None):
     """三步分析主流程"""
+    # 默认输出路径：/Users/limingheng/AI/client-data/{客户名}/缺口分析_{客户名}.md
+    if output_path is None:
+        client_output_dir = os.path.join(OUTPUT_ROOT, client_name)
+        os.makedirs(client_output_dir, exist_ok=True)
+        output_path = os.path.join(client_output_dir, f"缺口分析_{client_name}.md")
+
     print(f"\n{'='*50}")
     print(f"客户: {client_name} | 年份: {year}")
     print(f"{'='*50}")

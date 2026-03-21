@@ -12,6 +12,7 @@ import json
 import requests
 import uuid
 from pathlib import Path
+from typing import Optional
 
 # API配置
 QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
@@ -24,7 +25,7 @@ OPENAI_BASE_URL = "https://api.gptsapi.net/v1"
 EMBEDDING_MODEL = "text-embedding-3-large"
 
 
-def get_embedding(text: str) -> list | None:
+def get_embedding(text: str) -> Optional[list]:
     url = f"{OPENAI_BASE_URL}/embeddings"
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}",

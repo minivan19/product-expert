@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.qdrant_ops import create_collection, add_points_batch, count_points, COLLECTION_NAME
 
-DOCS_ROOT = r"C:\Users\mingh\client-data\raw\产品功能"
+DOCS_ROOT = r"/Users/limingheng/AI/client-data\raw\产品功能"
 XLSX_FILE = os.path.join(DOCS_ROOT, "甄云SRM产品功能清单.xlsx")
 
 MODULE_MAP = {

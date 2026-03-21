@@ -14,6 +14,7 @@ import re
 import sys
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
 import time
 
 SCRIPT_DIR = os.path.dirname(__file__)
@@ -88,6 +89,12 @@ BUILTIN_TERM_MAP = {
     '盘点': ('库存管理（非生物资）', '库存盘点'),
     # 预算管理
     '预算': ('预算管理', '支出预算控制'),
+    '预算控制': ('预算管理', '支出预算控制'),
+    '支出预算': ('预算管理', '支出预算控制'),
+    '预算编制': ('预算管理', '支出预算控制'),
+    '预算执行': ('预算管理', '支出预算控制'),
+    '费用预算': ('预算管理', '支出预算控制'),
+    '采购预算': ('预算管理', '支出预算控制'),
     # 移动端
     '微信': ('移动端', '微信/钉钉嵌入集成'),
     '钉钉': ('移动端', '微信/钉钉嵌入集成'),
@@ -115,7 +122,7 @@ def save_feedback(data: dict):
 # 术语查询
 # ─────────────────────────────────────────
 
-def lookup_term(term: str) -> tuple | None:
+def lookup_term(term: str) -> Optional[tuple]:
     term = term.strip()
     if not term or len(term) < 2:
         return None
@@ -164,7 +171,7 @@ def reject_term(term: str):
 # LLM 提取术语
 # ─────────────────────────────────────────
 
-def _load_deepseek_config() -> dict | None:
+def _load_deepseek_config() -> Optional[dict]:
     """从 openclaw.json 读取 DeepSeek API 配置"""
     oc_path = os.path.join(os.path.expanduser('~'), '.openclaw', 'openclaw.json')
     try:

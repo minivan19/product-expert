@@ -4,10 +4,13 @@
 场景1：需求 → 功能推荐
 用法：
   python scripts/search_features.py "客户希望管理供应商资质有效期"
+  python scripts/search_features.py "客户希望管理供应商资质有效期" --output /path/to/report.md
 """
 
 import os
 import sys
+import argparse
+from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.qdrant_ops import search_points, count_points
 
@@ -15,6 +18,7 @@ LLM_API_KEY = "sk-340ed7819c2346508c0a46a80df85999"
 LLM_BASE_URL = "https://api.deepseek.com/v1"
 LLM_MODEL = "deepseek-chat"
 SEARCH_TOP_K = 20
+OUTPUT_ROOT = "/Users/limingheng/AI/client-data/产品标准推荐"
 
 
 def call_llm(messages: list) -> str:
@@ -45,11 +49,12 @@ def format_results(results: list) -> str:
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("用法: python scripts/search_features.py <需求描述>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="场景1：需求 → 功能推荐")
+    parser.add_argument("need", help="客户需求描述")
+    parser.add_argument("--output", "-o", help="输出Markdown文件路径（默认保存到产品标准推荐目录）")
+    args = parser.parse_args()
 
-    need = sys.argv[1]
+    need = args.need
     total = count_points()
     if total == 0:
         print("Warning: 知识库为空，请先运行: python scripts/import_knowledge.py")
@@ -83,7 +88,22 @@ def main():
     rec = call_llm([{"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}])
 
-    print(f"\n=== Feature Recommendations ===\n{rec}")
+    output_content = f"# 功能推荐报告\n\n**需求：** {need}\n\n{rec}"
+
+    if args.output:
+        output_path = args.output
+    else:
+        os.makedirs(OUTPUT_ROOT, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(OUTPUT_ROOT, f"需求推荐_{ts}.md")
+
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(output_content)
+        print(f"\n报告已保存: {output_path}")
+    except Exception as e:
+        print(f"\n报告保存失败: {e}")
+        print(f"\n=== Feature Recommendations ===\n{rec}")
 
 
 if __name__ == "__main__":

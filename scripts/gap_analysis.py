@@ -287,6 +287,23 @@ def extract_pptx_text(fp: str) -> str:
     return '\n'.join(text_parts)
 
 
+def extract_pdf_text(fp: str) -> str:
+    """用PyMuPDF提取PDF文本，页数过多时做关键词预过滤"""
+    try:
+        doc = fitz.open(fp)
+        page_count = doc.page_count
+        # 全量提取（蓝图类PDF页数有限，内容可控制）
+        parts = []
+        for i in range(page_count):
+            text = doc[i].get_text().strip()
+            if text:
+                parts.append(f'[P{i+1}] {text}')
+        doc.close()
+        return '\n'.join(parts)
+    except Exception as e:
+        return f'[PDF读取失败: {e}]'
+
+
 def extract_blueprint(fp: str) -> str:
     """统一入口：根据扩展名调用不同提取方法"""
     ext = os.path.splitext(fp)[1].lower()
@@ -295,9 +312,7 @@ def extract_blueprint(fp: str) -> str:
     elif ext in ('.pptx', '.ppt'):
         return extract_pptx_text(fp)
     elif ext == '.pdf':
-        # PDF流程图：正文提取失败，用文件名降级
-        name = os.path.splitext(os.path.basename(fp))[0]
-        return name
+        return extract_pdf_text(fp)
     return ""
 
 

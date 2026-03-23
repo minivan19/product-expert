@@ -6,6 +6,7 @@ description: >-
   (1) 用户描述客户需求或痛点，询问哪些产品功能可以解决
   (2) 用户提供客户名称，从合同/蓝图/工单提取已用功能后，对比产品功能清单做缺口分析
   (3) 基于业务专家Skill输出的综合方案，生成实施路线图（依赖business-expert Skill）
+  (4) 管理产品方案卡资产（从蓝图提取、场景三生成入库、定期Review）
 ---
 
 # 产品专家 Skill
@@ -31,9 +32,41 @@ description: >-
 **输出**：3×2网格分类表 + 各分类激活/推荐建议
 
 ### 场景3：业务方案 → 实施路线图
-**输入**：业务专家 Skill 输出的综合经营分析方案（Part6）
-**处理**：读取方案内容 → 关联产品功能模块 → 规划实施顺序
+**输入**：business-expert 输出的结构化JSON（推荐处理方式，不含产品映射）
+**处理**：
+1. 接收业务专家JSON
+2. 查产品方案卡库（PC_XX）——是否有匹配？
+   - 有 → 复用现有卡片，CSM确认适用性
+   - 无 → Qdrant检索处理方式对应的产品功能
+3. 结合客户现状（场景二结果）→ 判断哪些模块需要新实施
+4. 排实施顺序（基础数据 → 核心流程 → 高级功能）
+5. 询问CSM是否将此方案入库为产品方案卡
 **输出**：分阶段实施路线图 + 必要时的二开建议
+
+### 场景4：产品方案卡管理
+产品方案卡是「业务场景→产品模块组合→实施步骤」的标准化资产，来源：蓝图提取 / 场景三生成 / 手工创建。
+
+**场景4a：蓝图方案 → 提取产品方案卡**
+```
+python3 scripts/extract_pc_from_blueprint.py --customer "诺斯贝尔" --auto
+```
+- 自动找客户最新蓝图方案文件
+- LLM分析文本 → 凝练为产品方案卡（一对多）
+- 每张卡片供CSM确认后保存
+
+**场景4b：场景三方案 → 询问入库**
+- 场景三输出实施路线图后，自动询问CSM是否保存为产品方案卡
+- 保存后状态为"草稿"，需后续完善
+
+**场景4c：卡片库Review**
+```
+python3 scripts/extract_pc_from_blueprint.py --review
+```
+- 扫描产品模块覆盖空白
+- 提示建议补充的高频场景
+
+**产品方案卡结构**：`framework/product_solution_card_schema.json`
+**卡片索引**：`framework/product_card_index.json`
 
 ## 知识库架构
 
@@ -155,17 +188,22 @@ python scripts/md2docx.py --input report.md --output report.docx --template temp
 - 关键文件：`蓝图*.pdf`、`*用户手册*.md`
 - 提取字段：实施模块清单、客户定制化功能
 
-## 与其他 Skill 的协作
+## 与 business-expert 的协作
 
 ```
-business-expert (场景3输入)
-       ↓ Part6综合经营分析方案
-product-expert (场景3)
-       ↓ 实施路线图
-[最终输出给客户]
+business-expert 场景一/二
+       ↓ 纯业务判断（不含产品映射）
+       JSON: {推荐处理方式, 业务域, 约束条件, 方案结构}
+              ↓
+product-expert 场景三
+       ↓ 查产品方案卡库 / Qdrant检索
+       ↓ 结合客户现状（场景二）
+       实施路线图 + 二开建议
+              ↓
+       询问CSM: 是否入库为产品方案卡？
+              ↓
+product-expert 场景四（卡片管理）
 ```
-
-场景3依赖 business-expert Skill 的输出，需要等业务专家完成后方可使用。
 
 ## 已知约束
 

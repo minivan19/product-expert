@@ -23,7 +23,7 @@ import zipfile
 import fitz
 import unicodedata
 
-CLIENT_DATA_ROOT = "/Users/limingheng/AI/client-data/raw/客户档案"
+CLIENT_DATA_ROOT = "/Users/limingheng/AI/client-data/客户档案"
 HIERARCHY_PATH = os.path.join(os.path.dirname(__file__), "..", "references", "product_modules_hierarchy.json")
 
 # 延迟导入 term_map（避免循环依赖）
@@ -912,7 +912,7 @@ def find_client_dir(client_name: str) -> str:
     raise FileNotFoundError(f"未找到客户目录: {client_name}")
 
 
-OUTPUT_ROOT = "/Users/limingheng/AI/client-data"
+OUTPUT_ROOT = "/Users/limingheng/AI/client-data/客户报告"
 
 
 def main(client_name: str, year: int = 2025, output_path: str = None):

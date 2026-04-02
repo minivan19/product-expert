@@ -1,7 +1,7 @@
 ---
 name: product-expert
 description: >-
-  甄云SRM产品专家Skill。基于产品功能知识库（Qdrant向量库），提供功能推荐、缺口分析和实施规划服务。
+  甄云SRM产品专家Skill。基于产品功能知识库（OpenViking向量库），提供功能推荐、缺口分析和实施规划服务。
   触发场景：
   (1) 用户描述客户需求或痛点，询问哪些产品功能可以解决
   (2) 用户提供客户名称，从合同/蓝图/工单提取已用功能后，对比产品功能清单做缺口分析
@@ -11,13 +11,13 @@ description: >-
 
 # 产品专家 Skill
 
-基于产品功能知识库（Qdrant）和 LLM 分析能力，为客户成功经理提供功能推荐和实施规划服务。
+基于产品功能知识库（OpenViking）和 LLM 分析能力，为客户成功经理提供功能推荐和实施规划服务。
 
 ## 核心能力
 
 ### 场景1：需求 → 功能推荐
 **输入**：客户需求描述或痛点（自然语言）
-**处理**：Qdrant 向量检索 → LLM 分析匹配
+**处理**：OpenViking 向量检索 → LLM 分析匹配
 **输出**：功能推荐清单 + 推荐理由 + 来源依据
 
 ### 场景2：已用功能 → 缺口分析
@@ -37,7 +37,7 @@ description: >-
 1. 接收业务专家JSON
 2. 查产品方案卡库（PC_XX）——是否有匹配？
    - 有 → 复用现有卡片，CSM确认适用性
-   - 无 → Qdrant检索处理方式对应的产品功能
+   - 无 → OpenViking检索处理方式对应的产品功能
 3. 结合客户现状（场景二结果）→ 判断哪些模块需要新实施
 4. 排实施顺序（基础数据 → 核心流程 → 高级功能）
 5. 询问CSM是否将此方案入库为产品方案卡
@@ -70,11 +70,11 @@ python3 scripts/extract_pc_from_blueprint.py --review
 
 ## 知识库架构
 
-### Qdrant Collection: product_knowledge
-- **维度**：3072（text-embedding-3-large）
+### OpenViking URI: viking://resources/srm-products
+- **维度**：2560（本地 Ollama: dengcao/Qwen3-Embedding-4B:Q4_K_M）
 - **距离算法**：Cosine
-- **Embedding API**：gptsapi.net（与 Mem0 一致）
-- **LLM 分析**：DeepSeek（deepseek-chat via api.deepseek.com）
+- **Embedding API**：本地 Ollama（已切换，2026-04-02）
+- **LLM 分析**：DeepSeek（deepseek-chat via DeepSeek OpenAPI）
 - **运维工单处理**：LLM 语义凝练（描述+解决方案+根本原因），仅取去年完整自然年数据
 - **隔离**：独立于 Mem0 的 openclaw_memories collection
 
@@ -96,15 +96,15 @@ python3 scripts/extract_pc_from_blueprint.py --review
 ### 数据来源
 | 来源 | 路径 | 格式 | 更新频率 |
 |------|------|------|----------|
-| 产品功能手册 | `/Users/limingheng/AI/client-data\raw\产品功能\`（65份MD） | Markdown | 几乎不变 |
-| 迭代功能清单 | `/Users/limingheng/AI/client-data\raw\产品功能\甄云SRM产品功能清单.xlsx` | Excel | 每年一次 |
+| 产品功能手册 | `/Users/limingheng/ai/client-data/raw/产品功能-重整/`（63份MD，已按套件-模块结构重组） | Markdown | 几乎不变 |
+| 迭代功能清单 | `/Users/limingheng/ai/client-data/raw/产品功能/甄云SRM产品功能清单.xlsx` | Excel | 每年一次 |
 
 ### 数据源优先级（场景2，三步分析）
 | 步骤 | 数据源 | 格式 | 方法 | LLM |
 |------|--------|------|------|-----|
 | Step1 买了没 | 合同xlsx（优先）→ 主数据xlsx（备选） | .xlsx | 关键词匹配 | 否 |
 | Step2 实施了没 | 蓝图方案文件夹 | .doc/.pptx/.pdf | 内容关键词匹配 | 否 |
-| Step3 用了没 | 运维工单文件夹 | .xlsx | DeepSeek LLM并行提取（5并发） | **是** |
+| Step3 用了没 | 运维工单文件夹 | .xlsx | Doubao LLM并行提取（5并发） | **是** |
 
 **支持格式**：xlsx / PDF / DOC / DOCX（自动识别处理）
 
@@ -113,18 +113,20 @@ python3 scripts/extract_pc_from_blueprint.py --review
 - 术语通过 `term_map.py` 映射到 (模块, 功能) 对
 - 内置 `BUILTIN_TERM_MAP`（50+ 条核心映射）+ `term_feedback.json`（用户确认的扩展映射）
 - 新术语自动进入待确认队列，通过交互完成映射闭环
-- API 配置从 `~/.openclaw/openclaw.json` 自动读取 DeepSeek key
+- API 配置从 `~/.openclaw/openclaw.json` 自动读取 Doubao Coding Plan Key
 
 ## 脚本说明
 
 ### import_knowledge.py
-**用途**：将产品手册导入 Qdrant
+**用途**：将产品手册导入 OpenViking（已通过 `ov add-resource` 导入，当前为兼容保留）
 **输入**：65份 MD 文档 + 迭代清单 xlsx
-**输出**：product_knowledge collection
+**输出**：viking://resources/srm-products
 **用法**：
 ```bash
-python scripts/import_knowledge.py           # 全量导入
-python scripts/import_knowledge.py --incremental  # 增量更新（对比文件更新时间）
+# 当前产品知识已导入到 viking://resources/srm-products，如需重新导入：
+ov add-resource ~/ai/client-data/raw/产品功能-重整 \
+  --to viking://resources/srm-products \
+  --reason product_knowledge
 ```
 
 ### search_features.py
@@ -156,9 +158,9 @@ python scripts/gap_analysis.py 诺斯贝尔 --output 缺口报告.md
 **功能**：
 - `BUILTIN_TERM_MAP`：50+ 条核心业务术语 → (模块, 功能) 映射
 - `term_feedback.json`：用户确认的扩展映射，持久化存储
-- `extract_terms_via_llm()`：DeepSeek LLM 并行提取（5并发，13batch约30秒）
+- `extract_terms_via_llm()`：Doubao LLM 并行提取（5并发，13batch约30秒）
 - `analyze_workorders()`：主分析流程，交互确认新术语
-**API配置**：从 `~/.openclaw/openclaw.json` 自动读取 DeepSeek 配置
+**API配置**：从 `~/.openclaw/openclaw.json` 自动读取 Doubao Coding Plan 配置
 
 ### md2docx.py
 **用途**：Markdown 转 Word 文档（独立工具）
@@ -196,7 +198,7 @@ business-expert 场景一/二
        JSON: {推荐处理方式, 业务域, 约束条件, 方案结构}
               ↓
 product-expert 场景三
-       ↓ 查产品方案卡库 / Qdrant检索
+       ↓ 查产品方案卡库 / OpenViking检索
        ↓ 结合客户现状（场景二）
        实施路线图 + 二开建议
               ↓

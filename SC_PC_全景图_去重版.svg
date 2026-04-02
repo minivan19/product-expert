@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="730" height="1476"
+     font-family="system-ui,-apple-system,sans-serif" font-size="12">
+  <defs>
+    <marker id="arr-l" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L7,3 z" fill="#78909c" opacity="0.8"/>
+    </marker>
+    <marker id="arr-r" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L7,3 z" fill="#66bb6a" opacity="0.8"/>
+    </marker>
+  </defs>
+  <rect width="730" height="1476" fill="#f8fafc"/>
+
+  <!-- 列头 -->
+  <rect x="0" y="0" width="730" height="26" fill="#eceff1" rx="0"/>
+  <text x="135" y="17" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#37474f">业务能力（子域）</text>
+  <text x="375" y="17" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#37474f">方案卡（PC）</text>
+  <text x="600" y="17" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#37474f">产品套件</text>
+
+  <!-- 分隔线 -->
+  <line x1="250" y1="0" x2="250" y2="1476"
+        stroke="#cfd8dc" stroke-width="1"/>
+  <line x1="480" y1="0" x2="480" y2="1476"
+        stroke="#cfd8dc" stroke-width="1"/>
+  <rect x="16" y="0" width="238" height="184" fill="#1a3a5c" rx="6" opacity="0.12"/>
+  <text x="26" y="97" font-size="11" font-weight="bold" fill="#1a3a5c">需求管理</text>
+  <rect x="16" y="184" width="238" height="138" fill="#1a3a5c" rx="6" opacity="0.12"/>
+  <text x="26" y="258" font-size="11" font-weight="bold" fill="#1a3a5c">寻源管理</text>
+  <rect x="16" y="322" width="238" height="138" fill="#1a3a5c" rx="6" opacity="0.12"/>
+  <text x="26" y="396" font-size="11" font-weight="bold" fill="#1a3a5c">合同管理</text>
+  <rect x="16" y="460" width="238" height="138" fill="#1a3a5c" rx="6" opacity="0.12"/>
+  <text x="26" y="534" font-size="11" font-weight="bold" fill="#1a3a5c">订单协同</text>
+  <rect x="16" y="598" width="238" height="184" fill="#1a3a5c" rx="6" opacity="0.12"/>
+  <text x="26" y="695" font-size="11" font-weight="bold" fill="#1a3a5c">交付协同</text>
+  <rect x="16" y="782" width="238" height="92" fill="#1a3a5c" rx="6" opacity="0.12"/>
+  <text x="26" y="833" font-size="11" font-weight="bold" fill="#1a3a5c">结算协同</text>
+  <rect x="16" y="874" width="238" height="184" fill="#1a3a5c" rx="6" opacity="0.12"/>
+  <text x="26" y="971" font-size="11" font-weight="bold" fill="#1a3a5c">供应商管理</text>
+  <rect x="16" y="1058" width="238" height="184" fill="#1a3a5c" rx="6" opacity="0.12"/>
+  <text x="26" y="1155" font-size="11" font-weight="bold" fill="#1a3a5c">质量与合规管理</text>
+  <rect x="16" y="1242" width="238" height="184" fill="#1a3a5c" rx="6" opacity="0.12"/>
+  <text x="26" y="1339" font-size="11" font-weight="bold" fill="#1a3a5c">采购分析与控制</text>
+  <!-- DM_01_01 需求标准化 -->
+  <rect x="20" y="2" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="27" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_01_01</tspan> 需求标准化</text>
+  <!-- DM_01_02 需求池管理 -->
+  <rect x="20" y="48" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="73" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_01_02</tspan> 需求池管理</text>
+  <!-- DM_01_03 寻源战略 -->
+  <rect x="20" y="94" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="119" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_01_03</tspan> 寻源战略</text>
+  <!-- DM_01_04 预算协同 -->
+  <rect x="20" y="140" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="165" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_01_04</tspan> 预算协同</text>
+  <!-- DM_02_01 寻源战略 -->
+  <rect x="20" y="186" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="211" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_02_01</tspan> 寻源战略</text>
+  <!-- DM_02_02 寻源方式选择 -->
+  <rect x="20" y="232" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="257" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_02_02</tspan> 寻源方式选择</text>
+  <!-- DM_02_03 商务评估与授予 -->
+  <rect x="20" y="278" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="303" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_02_03</tspan> 商务评估与授予</text>
+  <!-- DM_03_01 合同形态设计 -->
+  <rect x="20" y="324" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="349" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_03_01</tspan> 合同形态设计</text>
+  <!-- DM_03_02 合同条款管理 -->
+  <rect x="20" y="370" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="395" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_03_02</tspan> 合同条款管理</text>
+  <!-- DM_03_03 合同履行监控 -->
+  <rect x="20" y="416" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="441" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_03_03</tspan> 合同履行监控</text>
+  <!-- DM_04_01 订单生成与确认 -->
+  <rect x="20" y="462" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="487" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_04_01</tspan> 订单生成与确认</text>
+  <!-- DM_04_02 订单变更治理 -->
+  <rect x="20" y="508" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="533" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_04_02</tspan> 订单变更治理</text>
+  <!-- DM_04_03 订单执行与履约跟踪 -->
+  <rect x="20" y="554" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="579" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_04_03</tspan> 订单执行与履约跟踪</text>
+  <!-- DM_05_01 到场结算 -->
+  <rect x="20" y="600" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="625" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_05_01</tspan> 到场结算</text>
+  <!-- DM_05_02 收货验收 -->
+  <rect x="20" y="646" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="671" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_05_02</tspan> 收货验收</text>
+  <!-- DM_05_03 交付协同 -->
+  <rect x="20" y="692" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="717" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_05_03</tspan> 交付协同</text>
+  <!-- DM_05_04 交付异常与索赔 -->
+  <rect x="20" y="738" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="763" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_05_04</tspan> 交付异常与索赔</text>
+  <!-- DM_06_02 开票与付款 -->
+  <rect x="20" y="784" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="809" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_06_02</tspan> 开票与付款</text>
+  <!-- DM_06_03 索赔管理 -->
+  <rect x="20" y="830" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="855" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_06_03</tspan> 索赔管理</text>
+  <!-- DM_07_01 准入与资质 -->
+  <rect x="20" y="876" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="901" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_07_01</tspan> 准入与资质</text>
+  <!-- DM_07_02 分类分级 -->
+  <rect x="20" y="922" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="947" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_07_02</tspan> 分类分级</text>
+  <!-- DM_07_03 绩效管理 -->
+  <rect x="20" y="968" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="993" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_07_03</tspan> 绩效管理</text>
+  <!-- DM_07_04 关系与发展 -->
+  <rect x="20" y="1014" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="1039" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_07_04</tspan> 关系与发展</text>
+  <!-- DM_08_01 来料检验 -->
+  <rect x="20" y="1060" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="1085" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_08_01</tspan> 来料检验</text>
+  <!-- DM_08_02 质量控制 -->
+  <rect x="20" y="1106" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="1131" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_08_02</tspan> 质量控制</text>
+  <!-- DM_08_03 不合格闭环 -->
+  <rect x="20" y="1152" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="1177" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_08_03</tspan> 不合格闭环</text>
+  <!-- DM_08_04 合规审计 -->
+  <rect x="20" y="1198" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="1223" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_08_04</tspan> 合规审计</text>
+  <!-- DM_09_01 支出分析 -->
+  <rect x="20" y="1244" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="1269" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_09_01</tspan> 支出分析</text>
+  <!-- DM_09_02 采购指标体系 -->
+  <rect x="20" y="1290" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="1315" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_09_02</tspan> 采购指标体系</text>
+  <!-- DM_09_03 预测与计划协同 -->
+  <rect x="20" y="1336" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="1361" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_09_03</tspan> 预测与计划协同</text>
+  <!-- DM_09_04 预算与绩效闭环 -->
+  <rect x="20" y="1382" width="230" height="42" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.2"/>
+  <text x="28" y="1407" font-size="10" fill="#0d47a1"><tspan font-weight="600">DM_09_04</tspan> 预算与绩效闭环</text>
+  <path d="M250,21 C260,21 260,21 270,21" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,67 C260,67 260,67 270,67" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,113 C260,113 260,113 270,113" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,159 C260,159 260,159 270,159" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,343 C260,343 260,343 270,343" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,435 C260,435 260,435 270,435" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,481 C260,481 260,481 270,481" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,527 C260,527 260,527 270,527" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,573 C260,573 260,573 270,573" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,619 C260,619 260,619 270,619" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,757 C260,757 260,757 270,757" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,849 C260,849 260,849 270,849" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,895 C260,895 260,895 270,895" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,941 C260,941 260,941 270,941" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,1033 C260,1033 260,1033 270,1033" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,1079 C260,1079 260,1079 270,1079" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,1125 C260,1125 260,1125 270,1125" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,1263 C260,1263 260,1263 270,1263" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,1309 C260,1309 260,1309 270,1309" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <path d="M250,1355 C260,1355 260,1355 270,1355" stroke="#78909c" stroke-width="1.3" fill="none" marker-end="url(#arr-l)" opacity="0.85"/>
+  <!-- PC_18 采购需求标准化治理方案 -->
+  <rect x="270" y="2" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="16" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_18</text>
+  <text x="375" y="30" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">采购需求标准化治理方案</text>
+  <!-- PC_07 采购需求前置与临时采购压降方案 -->
+  <rect x="270" y="48" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="62" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_07</text>
+  <text x="375" y="76" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">采购需求前置与临时采购压降方案</text>
+  <!-- PC_21 寻源方式选择方案 -->
+  <rect x="270" y="94" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="108" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_21</text>
+  <text x="375" y="122" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">寻源方式选择方案</text>
+  <!-- PC_19 预算与需求协同及绩效闭环方案 -->
+  <rect x="270" y="140" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="154" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_19</text>
+  <text x="375" y="168" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">预算与需求协同及绩效闭环方案</text>
+  <!-- PC_09 合同全生命周期管理方案 -->
+  <rect x="270" y="324" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="338" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_09</text>
+  <text x="375" y="352" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">合同全生命周期管理方案</text>
+  <!-- PC_06 对账付款效率提升方案 -->
+  <rect x="270" y="416" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="430" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_06</text>
+  <text x="375" y="444" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">对账付款效率提升方案</text>
+  <!-- PC_33 采购订单生成与确认方案 -->
+  <rect x="270" y="462" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="476" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_33</text>
+  <text x="375" y="490" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">采购订单生成与确认方案</text>
+  <!-- PC_10 采购订单变更治理方案 -->
+  <rect x="270" y="508" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="522" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_10</text>
+  <text x="375" y="536" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">采购订单变更治理方案</text>
+  <!-- PC_34 订单执行与履约跟踪方案 -->
+  <rect x="270" y="554" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="568" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_34</text>
+  <text x="375" y="582" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">订单执行与履约跟踪方案</text>
+  <!-- PC_25 收货与验收方案 -->
+  <rect x="270" y="600" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="614" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_25</text>
+  <text x="375" y="628" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">收货与验收方案</text>
+  <!-- PC_02 供应商延期交付治理方案 -->
+  <rect x="270" y="738" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="752" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_02</text>
+  <text x="375" y="766" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">供应商延期交付治理方案</text>
+  <!-- PC_28 供应商绩效管理方案 -->
+  <rect x="270" y="830" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="844" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_28</text>
+  <text x="375" y="858" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">供应商绩效管理方案</text>
+  <!-- PC_08 供应商准入与资质管理方案 -->
+  <rect x="270" y="876" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="890" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_08</text>
+  <text x="375" y="904" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">供应商准入与资质管理方案</text>
+  <!-- PC_27 供应商分类分级方案 -->
+  <rect x="270" y="922" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="936" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_27</text>
+  <text x="375" y="950" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">供应商分类分级方案</text>
+  <!-- PC_11 弱势买方关键供应商关系经营方案 -->
+  <rect x="270" y="1014" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="1028" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_11</text>
+  <text x="375" y="1042" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">弱势买方关键供应商关系经营方案</text>
+  <!-- PC_35 来料检验管理方案 -->
+  <rect x="270" y="1060" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="1074" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_35</text>
+  <text x="375" y="1088" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">来料检验管理方案</text>
+  <!-- PC_05 来料质量反复问题治理方案 -->
+  <rect x="270" y="1106" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="1120" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_05</text>
+  <text x="375" y="1134" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">来料质量反复问题治理方案</text>
+  <!-- PC_36 采购支出分析与透明化方案 -->
+  <rect x="270" y="1244" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="1258" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_36</text>
+  <text x="375" y="1272" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">采购支出分析与透明化方案</text>
+  <!-- PC_37 采购指标体系搭建方案 -->
+  <rect x="270" y="1290" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="1304" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_37</text>
+  <text x="375" y="1318" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">采购指标体系搭建方案</text>
+  <!-- PC_32 预测与计划协同方案 -->
+  <rect x="270" y="1336" width="210" height="42" rx="6" fill="#fff8e1" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="375" y="1350" text-anchor="middle" font-size="11" font-weight="bold" fill="#4e342e">PC_32</text>
+  <text x="375" y="1364" text-anchor="middle" font-size="9" fill="#4e342e" opacity="0.75">预测与计划协同方案</text>
+  <path d="M480,6 C490,6 490,550 500,550" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,20 C490,20 490,596 500,596" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,67 C490,67 490,550 500,550" stroke="#66bb6a" stroke-width="1.2" fill="none" marker-end="url(#arr-r)" opacity="0.8"/>
+  <path d="M480,98 C490,98 490,642 500,642" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,112 C490,112 490,688 500,688" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,144 C490,144 490,550 500,550" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,158 C490,158 490,734 500,734" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,328 C490,328 490,642 500,642" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,342 C490,342 490,688 500,688" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,420 C490,420 490,550 500,550" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,434 C490,434 490,688 500,688" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,481 C490,481 490,550 500,550" stroke="#66bb6a" stroke-width="1.2" fill="none" marker-end="url(#arr-r)" opacity="0.8"/>
+  <path d="M480,527 C490,527 490,550 500,550" stroke="#66bb6a" stroke-width="1.2" fill="none" marker-end="url(#arr-r)" opacity="0.8"/>
+  <path d="M480,573 C490,573 490,550 500,550" stroke="#66bb6a" stroke-width="1.2" fill="none" marker-end="url(#arr-r)" opacity="0.8"/>
+  <path d="M480,604 C490,604 490,550 500,550" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,618 C490,618 490,780 500,780" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,742 C490,742 490,550 500,550" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,756 C490,756 490,826 500,826" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,770 C490,770 490,688 500,688" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,834 C490,834 490,826 500,826" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,848 C490,848 490,688 500,688" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,880 C490,880 490,826 500,826" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,894 C490,894 490,688 500,688" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,926 C490,926 490,826 500,826" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,940 C490,940 490,642 500,642" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,954 C490,954 490,688 500,688" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1018 C490,1018 490,826 500,826" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1032 C490,1032 490,642 500,642" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1046 C490,1046 490,550 500,550" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1060 C490,1060 490,688 500,688" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1079 C490,1079 490,550 500,550" stroke="#66bb6a" stroke-width="1.2" fill="none" marker-end="url(#arr-r)" opacity="0.8"/>
+  <path d="M480,1110 C490,1110 490,780 500,780" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1124 C490,1124 490,826 500,826" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1138 C490,1138 490,642 500,642" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1152 C490,1152 490,688 500,688" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1248 C490,1248 490,688 500,688" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1262 C490,1262 490,734 500,734" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1276 C490,1276 490,872 500,872" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1294 C490,1294 490,688 500,688" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1308 C490,1308 490,872 500,872" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1322 C490,1322 490,550 500,550" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1340 C490,1340 490,688 500,688" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <path d="M480,1354 C490,1354 490,550 500,550" stroke="#66bb6a" stroke-width="1" fill="none" marker-end="url(#arr-r)" opacity="0.65"/>
+  <rect x="500" y="531" width="200" height="42" rx="5" fill="#e1f5fe" stroke="#43a047" stroke-width="1.2"/>
+  <text x="600" y="556" text-anchor="middle" font-size="10" font-weight="600" fill="#0277bd">协同套件</text>
+  <rect x="500" y="577" width="200" height="42" rx="5" fill="#efebe9" stroke="#43a047" stroke-width="1.2"/>
+  <text x="600" y="602" text-anchor="middle" font-size="10" font-weight="600" fill="#4e342e">主数据</text>
+  <rect x="500" y="623" width="200" height="42" rx="5" fill="#fff3e0" stroke="#43a047" stroke-width="1.2"/>
+  <text x="600" y="648" text-anchor="middle" font-size="10" font-weight="600" fill="#e65100">寻源套件</text>
+  <rect x="500" y="669" width="200" height="42" rx="5" fill="#e8f5e9" stroke="#43a047" stroke-width="1.2"/>
+  <text x="600" y="694" text-anchor="middle" font-size="10" font-weight="600" fill="#2e7d32">数据应用套件</text>
+  <rect x="500" y="715" width="200" height="42" rx="5" fill="#e0f7fa" stroke="#43a047" stroke-width="1.2"/>
+  <text x="600" y="740" text-anchor="middle" font-size="10" font-weight="600" fill="#006064">BSMB套件</text>
+  <rect x="500" y="761" width="200" height="42" rx="5" fill="#fce4ec" stroke="#43a047" stroke-width="1.2"/>
+  <text x="600" y="786" text-anchor="middle" font-size="10" font-weight="600" fill="#ad1457">质量套件</text>
+  <rect x="500" y="807" width="200" height="42" rx="5" fill="#f3e5f5" stroke="#43a047" stroke-width="1.2"/>
+  <text x="600" y="832" text-anchor="middle" font-size="10" font-weight="600" fill="#6a1b9a">供应商管理套件</text>
+  <rect x="500" y="853" width="200" height="42" rx="5" fill="#f1f8e9" stroke="#43a047" stroke-width="1.2"/>
+  <text x="600" y="878" text-anchor="middle" font-size="10" font-weight="600" fill="#558b2f">大数据平台</text>
+</svg>

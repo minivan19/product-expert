@@ -10,29 +10,58 @@
 import os
 import sys
 import argparse
+import json
 from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.qdrant_ops import search_points, count_points
 
-LLM_API_KEY = "sk-340ed7819c2346508c0a46a80df85999"
-LLM_BASE_URL = "https://api.deepseek.com/v1"
-LLM_MODEL = "deepseek-chat"
 SEARCH_TOP_K = 20
 OUTPUT_ROOT = "/Users/limingheng/AI/client-data/产品标准推荐"
 
+# ── 双模型配置（豆包主 + DeepSeek 兜底）─────────────────────────────
+DOUBAN_API_KEY = os.environ.get("DOUBAN_API_KEY", "")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+
+DOUBAN_API_URL = "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"
+DOUBAN_MODEL = "doubao-seed-2.0-pro"
+
+DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
+DEEPSEEK_MODEL = "deepseek-chat"
+
 
 def call_llm(messages: list) -> str:
+    """调用 LLM：优先豆包，失败则 DeepSeek 兜底"""
     import requests
-    url = f"{LLM_BASE_URL}/chat/completions"
-    resp = requests.post(
-        url,
-        headers={"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"},
-        json={"model": LLM_MODEL, "messages": messages, "temperature": 0.3},
-        timeout=120
-    )
-    if resp.status_code == 200:
-        return resp.json()["choices"][0]["message"]["content"]
-    return f"LLM调用失败: {resp.status_code}"
+
+    # ① 豆包
+    if DOUBAN_API_KEY:
+        try:
+            resp = requests.post(
+                DOUBAN_API_URL,
+                headers={"Authorization": f"Bearer {DOUBAN_API_KEY}", "Content-Type": "application/json"},
+                json={"model": DOUBAN_MODEL, "messages": messages, "temperature": 0.3},
+                timeout=(30, 120)
+            )
+            if resp.status_code == 200:
+                return resp.json()["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+
+    # ② DeepSeek 兜底
+    if DEEPSEEK_API_KEY:
+        try:
+            resp = requests.post(
+                DEEPSEEK_API_URL,
+                headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+                json={"model": DEEPSEEK_MODEL, "messages": messages, "temperature": 0.3},
+                timeout=(30, 120)
+            )
+            if resp.status_code == 200:
+                return resp.json()["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+
+    raise RuntimeError("LLM调用失败：未配置任何API Key（DOUBAN_API_KEY 和 DEEPSEEK_API_KEY 均未设置）")
 
 
 def format_results(results: list) -> str:

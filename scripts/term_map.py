@@ -171,45 +171,57 @@ def reject_term(term: str):
 # LLM 提取术语
 # ─────────────────────────────────────────
 
-def _load_deepseek_config() -> Optional[dict]:
-    """从 openclaw.json 读取 DeepSeek API 配置"""
-    oc_path = os.path.join(os.path.expanduser('~'), '.openclaw', 'openclaw.json')
-    try:
-        with open(oc_path, encoding='utf-8') as f:
-            data = json.load(f)
-        models = data.get('models', {})
-        providers = models.get('providers', {})
-        for name, cfg in providers.items():
-            base_url = cfg.get('baseUrl', '')
-            if 'deepseek' in base_url.lower():
-                return {
-                    'api_key': cfg.get('apiKey', ''),
-                    'base_url': base_url,
-                    'model': cfg.get('models', [{}])[0].get('id', 'deepseek-chat') if cfg.get('models') else 'deepseek-chat'
-                }
-    except Exception:
-        pass
+# ── 双模型配置（豆包主 + DeepSeek 兜底）─────────────────────────────
+DOUBAN_API_KEY = os.environ.get("DOUBAN_API_KEY", "")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+
+DOUBAN_API_URL = "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"
+DOUBAN_MODEL = "doubao-seed-2.0-pro"
+
+DEEPSEEK_API_URL = "https://api.deepseek.com/v1"
+DEEPSEEK_MODEL = "deepseek-chat"
+
+
+def _get_first_available_llm() -> Optional[dict]:
+    """返回第一个可用的 LLM 配置（豆包优先，DeepSeek 兜底）"""
+    # ① 豆包
+    if DOUBAN_API_KEY:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=DOUBAN_API_KEY, base_url=DOUBAN_API_URL)
+            resp = client.chat.completions.create(
+                model=DOUBAN_MODEL,
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=5,
+                timeout=10
+            )
+            return {"api_key": DOUBAN_API_KEY, "base_url": DOUBAN_API_URL, "model": DOUBAN_MODEL}
+        except Exception:
+            pass
+    # ② DeepSeek
+    if DEEPSEEK_API_KEY:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_API_URL)
+            resp = client.chat.completions.create(
+                model=DEEPSEEK_MODEL,
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=5,
+                timeout=10
+            )
+            return {"api_key": DEEPSEEK_API_KEY, "base_url": DEEPSEEK_API_URL, "model": DEEPSEEK_MODEL}
+        except Exception:
+            pass
     return None
 
 
+def _load_llm_config() -> Optional[dict]:
+    """兼容旧接口：返回第一个可用的 LLM 配置"""
+    return _get_first_available_llm()
+
+
 def _llm_available() -> bool:
-    cfg = _load_deepseek_config()
-    if not cfg:
-        return False
-    try:
-        from openai import OpenAI
-    except ImportError:
-        return False
-    try:
-        client = OpenAI(api_key=cfg['api_key'], base_url=cfg['base_url'])
-        resp = client.chat.completions.create(
-            model=cfg['model'],
-            messages=[{"role": "user", "content": "hi"}],
-            max_tokens=5
-        )
-        return True
-    except Exception:
-        return False
+    return _get_first_available_llm() is not None
 
 
 MAX_CONCURRENCY = 5
@@ -273,7 +285,7 @@ def extract_terms_via_llm(workorders: list, model: str = None) -> list:
     并行调用 LLM 提取工单中的业务术语（5并发）。
     返回: [{term: str, evidence: str}, ...]
     """
-    cfg = _load_deepseek_config()
+    cfg = _load_llm_config()
     if not cfg:
         return []
 

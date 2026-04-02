@@ -512,56 +512,55 @@ def classify_3x2(bought: dict, implemented: dict, used: dict, hierarchy: list) -
 
 # -----------------------------------------
 # LLM 推荐生成（Phase A/B/C/D）
-# -----------------------------------------
+# ── 双模型配置（豆包主 + DeepSeek 兜底）─────────────────────────────
+DOUBAN_API_KEY = os.environ.get("DOUBAN_API_KEY", "")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+
+DOUBAN_API_URL = "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"
+DOUBAN_MODEL = "doubao-seed-2.0-pro"
+
+DEEPSEEK_API_URL = "https://api.deepseek.com/v1"
+DEEPSEEK_MODEL = "deepseek-chat"
+
 
 def call_llm(messages: list, model: str = None) -> str:
-    """调用LLM接口（优先DeepSeek，fallback MiniMax）"""
+    """调用 LLM：优先豆包，失败则 DeepSeek 兜底"""
     try:
         from openai import OpenAI
     except ImportError:
         return "[LLM未安装]"
 
-    # 优先用 DeepSeek（从openclaw.json读取）
-    deepseek_cfg = None
-    try:
-        import json
-        oc_path = os.path.join(os.path.expanduser('~'), '.openclaw', 'openclaw.json')
-        with open(oc_path, encoding='utf-8') as f:
-            data = json.load(f)
-        providers = data.get('models', {}).get('providers', {})
-        for name, cfg in providers.items():
-            if 'deepseek' in name.lower():
-                deepseek_cfg = cfg
-                break
-    except Exception:
-        pass
+    # ① 豆包
+    if DOUBAN_API_KEY:
+        try:
+            client = OpenAI(api_key=DOUBAN_API_KEY, base_url=DOUBAN_API_URL)
+            model_id = model or DOUBAN_MODEL
+            resp = client.chat.completions.create(
+                model=model_id,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=2000
+            )
+            return resp.choices[0].message.content
+        except Exception:
+            pass
 
-    if deepseek_cfg:
-        client = OpenAI(
-            api_key=deepseek_cfg.get('apiKey', ''),
-            base_url=deepseek_cfg.get('baseUrl', '')
-        )
-        model_id = model
-        if not model_id:
-            models = deepseek_cfg.get('models', [])
-            model_id = models[0].get('id', 'deepseek-chat') if models else 'deepseek-chat'
-    else:
-        client = OpenAI(
-            api_key=os.environ.get('OPENAI_API_KEY', ''),
-            base_url=os.environ.get('OPENAI_API_BASE', 'https://api.minimaxi.com/v1')
-        )
-        model_id = model or 'MiniMax-Accelerate'
+    # ② DeepSeek 兜底
+    if DEEPSEEK_API_KEY:
+        try:
+            client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_API_URL)
+            model_id = model or DEEPSEEK_MODEL
+            resp = client.chat.completions.create(
+                model=model_id,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=2000
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            return f"[LLM错误: {e}]"
 
-    try:
-        resp = client.chat.completions.create(
-            model=model_id,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=2000
-        )
-        return resp.choices[0].message.content
-    except Exception as e:
-        return f"[LLM错误: {e}]"
+    return "[LLM错误: 未配置任何API Key（DOUBAN_API_KEY 和 DEEPSEEK_API_KEY 均未设置）]"
 
 
 def _read_blueprint_for_module(impl: dict, mod: str, client_dir: str) -> str:
@@ -913,9 +912,60 @@ def find_client_dir(client_name: str) -> str:
 
 
 OUTPUT_ROOT = "/Users/limingheng/AI/client-data/客户报告"
+WORKSPACE_MEDIA_DIR = "/Users/limingheng/.openclaw/workspace/media"
+FEISHU_TARGET = "user:ou_de8266fa9b6ec7b8a25b58df4dab4e7f"
 
 
-def main(client_name: str, year: int = 2025, output_path: str = None):
+def convert_and_send_to_feishu(md_file: str, client_name: str):
+    """
+    将 Markdown 报告转为 DOCX 并发送到飞书。
+    流程：MD → DOCX（复用 md2docx.py）→ 复制到 media/ → openclaw message send
+    """
+    import shutil, subprocess, sys, os
+
+    # 复用 md2docx.py 的转换逻辑
+    try:
+        sys.path.insert(0, os.path.dirname(__file__))
+        from md2docx import convert_markdown_to_docx
+    except ImportError as e:
+        print(f"  [Feishu] md2docx.py 导入失败，跳过发送: {e}")
+        return
+
+    docx_file = md_file.replace('.md', '.docx')
+
+    # Step 1: MD → DOCX
+    print("  [Feishu] MD → DOCX...")
+    ok = convert_markdown_to_docx(md_file, docx_file)
+    if not ok:
+        print("  [Feishu] DOCX 转换失败，跳过发送")
+        return
+
+    # Step 2: 复制到 workspace/media（飞书白名单目录）
+    media_basename = f"缺口分析_{client_name}.docx"
+    media_path = os.path.join(WORKSPACE_MEDIA_DIR, media_basename)
+    try:
+        shutil.copy2(docx_file, media_path)
+        print(f"  [Feishu] 已复制到 media: {media_path}")
+    except Exception as e:
+        print(f"  [Feishu] 复制到 media 目录失败，跳过发送: {e}")
+        return
+
+    # Step 3: 通过 openclaw message send 发送附件
+    print("  [Feishu] 发送附件...")
+    cmd = [
+        "openclaw", "message", "send",
+        "--channel", "feishu",
+        "--target", FEISHU_TARGET,
+        "--media", media_path
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == 0:
+        print("  [Feishu] ✅ 已发送至飞书")
+    else:
+        print(f"  [Feishu] ❌ 发送失败: {result.stderr.strip()}")
+
+
+def main(client_name: str, year: int = 2025, output_path: str = None, send_to_feishu: bool = False):
     """三步分析主流程"""
     # 默认输出路径：/Users/limingheng/AI/client-data/{客户名}/缺口分析_{客户名}.md
     if output_path is None:
@@ -965,8 +1015,16 @@ def main(client_name: str, year: int = 2025, output_path: str = None):
             import traceback
             traceback.print_exc()
             print(f"\n报告保存失败: {e}")
+            output_path = None
     else:
         print(report)
+
+    # 可选：转为 DOCX 并发送到飞书
+    if send_to_feishu and output_path:
+        print(f"\n{'='*50}")
+        print(f"[Feishu] 发送报告至飞书...")
+        print(f"{'='*50}")
+        convert_and_send_to_feishu(output_path, client_name)
 
     return grid, recs
 
@@ -1023,9 +1081,10 @@ if __name__ == '__main__':
     parser.add_argument('client', help='客户名称（部分匹配）')
     parser.add_argument('--year', type=int, default=2025)
     parser.add_argument('--output', help='输出Markdown文件路径')
+    parser.add_argument('--feishu', action='store_true', help='生成后转为DOCX并发至飞书')
     args = parser.parse_args()
 
     try:
-        main(args.client, args.year, args.output)
+        main(args.client, args.year, args.output, send_to_feishu=args.feishu)
     except FileNotFoundError as e:
         print(f"错误: {e}")

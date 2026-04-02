@@ -115,20 +115,25 @@ def find_latest_blueprint(customer_name: str) -> Path:
         return max(candidates, key=lambda p: p.stat().st_mtime)
     return None
 
-# ── LLM 提取 ──────────────────────────────────────────────
-
+# ── 双模型配置（豆包主 + DeepSeek 兜底）─────────────────────────────
+DOUBAN_API_KEY = os.environ.get("DOUBAN_API_KEY", "")
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-DEEPSEEK_API_KEY = DEEPSEEK_API_KEY or os.environ.get("OPENAI_API_KEY", "")
+
+DOUBAN_API_URL = "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"
+DOUBAN_MODEL = "doubao-seed-2.0-pro"
+
+DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
+DEEPSEEK_MODEL = "deepseek-chat"
+
 
 def llm_extract_cards(blueprint_text: str, customer_name: str) -> list:
     """
-    用DeepSeek LLM从蓝图文本中提取产品方案卡。
+    用 LLM（豆包优先，DeepSeek 兜底）从蓝图文本中提取产品方案卡。
     返回: [{"name": "...", "modules": [...], "steps": [...], "suitable_for": {...}}, ...]
     """
     if not blueprint_text or len(blueprint_text) < 100:
         return [{"error": "蓝图内容太短或无法读取"}]
 
-    # 控制token：只取前8000字
     text_to_send = blueprint_text[:8000]
 
     prompt = f"""你是一个ERP实施专家。请从以下客户蓝图方案中提取「产品方案卡」。
@@ -158,41 +163,67 @@ def llm_extract_cards(blueprint_text: str, customer_name: str) -> list:
 """
 
     import urllib.request
-    import urllib.error
 
-    payload = {
-        "model": "deepseek-chat",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-        "max_tokens": 2000
-    }
+    content = None
 
-    req = urllib.request.Request(
-        "https://api.deepseek.com/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        method="POST"
-    )
+    # ① 豆包
+    if DOUBAN_API_KEY:
+        try:
+            payload = {
+                "model": DOUBAN_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "max_tokens": 2000
+            }
+            req = urllib.request.Request(
+                DOUBAN_API_URL,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Authorization": f"Bearer {DOUBAN_API_KEY}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=(30, 120)) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                content = result["choices"][0]["message"]["content"]
+        except Exception:
+            pass
 
+    # ② DeepSeek 兜底
+    if content is None and DEEPSEEK_API_KEY:
+        try:
+            payload = {
+                "model": DEEPSEEK_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "max_tokens": 2000
+            }
+            req = urllib.request.Request(
+                DEEPSEEK_API_URL,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=(30, 120)) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                content = result["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+
+    if content is None:
+        return [{"error": "LLM调用失败：未配置任何API Key"}]
+
+    # 尝试解析JSON
+    if "```json" in content:
+        start = content.find("```json") + 7
+        end = content.find("```", start)
+        content = content[start:end]
+    elif "```" in content:
+        start = content.find("```") + 3
+        end = content.find("```", start)
+        content = content[start:end]
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-            content = result["choices"][0]["message"]["content"]
-            # 尝试解析JSON
-            if "```json" in content:
-                start = content.find("```json") + 7
-                end = content.find("```", start)
-                content = content[start:end]
-            elif "```" in content:
-                start = content.find("```") + 3
-                end = content.find("```", start)
-                content = content[start:end]
-            return json.loads(content.strip())
-    except Exception as e:
-        return [{"error": str(e)}]
+        return json.loads(content.strip())
+    except Exception:
+        return [{"error": f"JSON解析失败: {content[:100]}"}]
 
 
 def build_pc_from_llm_result(llm_card: dict, customer_name: str, source_file: str) -> dict:
